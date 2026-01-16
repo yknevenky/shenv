@@ -117,6 +117,3 @@ serviceAccountRouter.delete('/', async (c) => {
     return c.json({ error: true, message: 'Failed to delete service account' }, 500);
   }
 });
-
-// Export decrypt function for use in other modules
-export { decrypt };
