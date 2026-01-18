@@ -9,7 +9,7 @@ import { UserRepository } from '../db/repositories/user.js';
 import { GovernanceActionRepository } from '../db/repositories/governance-action.js';
 import { ActionApprovalRepository } from '../db/repositories/action-approval.js';
 import { AuditLogRepository } from '../db/repositories/audit-log.js';
-import { SheetRepository } from '../db/repositories/sheet.js';
+import { AssetRepository } from '../db/repositories/asset.js';
 import { GovernanceService } from '../services/governance-service.js';
 import { ApprovalWorkflowService } from '../services/approval-workflow-service.js';
 import { decrypt } from './service-account.js';
@@ -35,13 +35,13 @@ governanceRouter.post('/actions', async (c) => {
     }
 
     const body = await c.req.json();
-    const { sheetId, actionType, reason, approvers, metadata } = body;
+    const { assetId, actionType, reason, approvers, metadata } = body;
 
     // Validate required fields
-    if (!sheetId || !actionType || !reason) {
+    if (!assetId || !actionType || !reason) {
       return c.json({
         error: true,
-        message: 'Missing required fields: sheetId, actionType, reason',
+        message: 'Missing required fields: assetId, actionType, reason',
       }, 400);
     }
 
@@ -54,10 +54,10 @@ governanceRouter.post('/actions', async (c) => {
       }, 400);
     }
 
-    // Get sheet from database
-    const sheet = await SheetRepository.findBySheetId(userId, sheetId);
-    if (!sheet) {
-      return c.json({ error: true, message: 'Sheet not found' }, 404);
+    // Get asset from database
+    const asset = await AssetRepository.findById(assetId);
+    if (!asset || asset.userId !== userId) {
+      return c.json({ error: true, message: 'Asset not found' }, 404);
     }
 
     const approversList = approvers && Array.isArray(approvers) ? approvers : [];
@@ -65,7 +65,7 @@ governanceRouter.post('/actions', async (c) => {
     // Create action with approvers
     const result = await ApprovalWorkflowService.createActionWithApprovers(
       userId,
-      sheet.id,
+      asset.id,
       actionType,
       user.email,
       approversList,
@@ -118,16 +118,17 @@ governanceRouter.get('/actions', async (c) => {
       actions = await GovernanceActionRepository.findAllByUser(userId);
     }
 
-    // Enrich with sheet details
+    // Enrich with asset details
     const enrichedActions = await Promise.all(
       actions.map(async (action) => {
-        const sheet = await SheetRepository.findById(action.sheetId);
+        const asset = await AssetRepository.findById(action.assetId);
         const approvals = await ActionApprovalRepository.findAllByAction(action.id);
 
         return {
           id: action.id,
-          sheetId: sheet?.sheetId,
-          sheetName: sheet?.name,
+          assetId: asset?.id,
+          externalId: asset?.externalId,
+          assetName: asset?.name,
           actionType: action.actionType,
           status: action.status,
           reason: action.reason,
@@ -183,14 +184,15 @@ governanceRouter.get('/actions/:id', async (c) => {
       return c.json({ error: true, message: 'Unauthorized' }, 403);
     }
 
-    const sheet = await SheetRepository.findById(action.sheetId);
+    const asset = await AssetRepository.findById(action.assetId);
     const approvalStatus = await ApprovalWorkflowService.getApprovalStatus(actionId);
 
     return c.json({
       action: {
         id: action.id,
-        sheetId: sheet?.sheetId,
-        sheetName: sheet?.name,
+        assetId: asset?.id,
+        externalId: asset?.externalId,
+        assetName: asset?.name,
         actionType: action.actionType,
         status: action.status,
         reason: action.reason,

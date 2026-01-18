@@ -1,24 +1,64 @@
 /**
- * Type definitions for Shenv Google Sheets Governance Platform
+ * Type definitions for Shenv Multi-Platform Governance Platform
  */
 
 /**
- * Represents a Google Sheet with basic metadata
+ * Platform providers
  */
-export interface Sheet {
-  /** Google Drive file ID */
+export type Platform =
+  | 'google_workspace'
+  | 'microsoft_365'
+  | 'zoho'
+  | 'dropbox'
+  | 'box'
+  | 'other';
+
+/**
+ * Asset types (platform-agnostic)
+ */
+export type AssetType =
+  | 'spreadsheet'
+  | 'document'
+  | 'presentation'
+  | 'form'
+  | 'pdf'
+  | 'folder'
+  | 'database'
+  | 'whiteboard'
+  | 'other';
+
+/**
+ * Credential types
+ */
+export type CredentialType =
+  | 'service_account'
+  | 'oauth'
+  | 'api_key'
+  | 'other';
+
+/**
+ * Represents an asset (file/document) with basic metadata
+ */
+export interface Asset {
+  /** Platform's file/asset ID */
   id: string;
-  /** Sheet name/title */
+  /** Which platform this asset belongs to */
+  platform: Platform;
+  /** Type of asset */
+  assetType: AssetType;
+  /** Platform-specific MIME type */
+  mimeType?: string;
+  /** Asset name/title */
   name: string;
-  /** Direct URL to the sheet */
+  /** Direct URL to the asset */
   url: string;
-  /** Email of the sheet owner */
+  /** Email of the asset owner */
   owner: string;
-  /** ISO timestamp when sheet was created */
+  /** ISO timestamp when asset was created */
   createdTime: string;
-  /** ISO timestamp when sheet was last modified */
+  /** ISO timestamp when asset was last modified */
   modifiedTime: string;
-  /** Total number of permissions on this sheet */
+  /** Total number of permissions on this asset */
   permissionCount: number;
 }
 
@@ -33,13 +73,13 @@ export type PermissionRole = 'owner' | 'writer' | 'commenter' | 'reader';
 export type PermissionType = 'user' | 'group' | 'domain' | 'anyone';
 
 /**
- * Represents a single permission on a Google Sheet
+ * Represents a single permission on an asset
  */
 export interface Permission {
-  /** Permission ID from Google Drive */
+  /** Permission ID from the platform */
   id: string;
-  /** Associated sheet ID */
-  sheetId: string;
+  /** Associated asset ID */
+  assetId: string;
   /** Email of the user/group (if applicable) */
   email: string | null;
   /** Permission role/level */
@@ -53,20 +93,20 @@ export interface Permission {
 }
 
 /**
- * Detailed sheet information including permissions
+ * Detailed asset information including permissions
  */
-export interface SheetDetails extends Sheet {
-  /** All permissions on this sheet */
+export interface AssetDetails extends Asset {
+  /** All permissions on this asset */
   permissions: Permission[];
 }
 
 /**
- * Paginated response for sheets list
+ * Paginated response for assets list
  */
-export interface SheetsListResponse {
-  /** Array of sheets */
-  sheets: Sheet[];
-  /** Total number of sheets available */
+export interface AssetsListResponse {
+  /** Array of assets */
+  assets: Asset[];
+  /** Total number of assets available */
   total: number;
   /** Current page number */
   page: number;
@@ -77,13 +117,33 @@ export interface SheetsListResponse {
 }
 
 /**
- * Response for single sheet details
+ * Response for single asset details
  */
-export interface SheetDetailsResponse {
-  /** Sheet metadata */
-  sheet: Sheet;
-  /** All permissions on the sheet */
+export interface AssetDetailsResponse {
+  /** Asset metadata */
+  asset: Asset;
+  /** All permissions on the asset */
   permissions: Permission[];
+}
+
+/**
+ * Platform credential information
+ */
+export interface PlatformCredential {
+  /** Internal credential ID */
+  id: number;
+  /** User ID */
+  userId: number;
+  /** Platform identifier */
+  platform: Platform;
+  /** Credential type */
+  credentialType: CredentialType;
+  /** Whether credential is active */
+  isActive: boolean;
+  /** When credential was created */
+  createdAt: string;
+  /** When credential was last used */
+  lastUsedAt?: string;
 }
 
 /**
@@ -123,14 +183,18 @@ export interface HealthResponse {
 }
 
 /**
- * Query parameters for sheets list endpoint
+ * Query parameters for assets list endpoint
  */
-export interface SheetsQueryParams {
+export interface AssetsQueryParams {
+  /** Platform filter */
+  platform?: Platform;
+  /** Asset type filter */
+  assetType?: AssetType;
   /** Page number (1-indexed) */
   page?: number;
   /** Items per page */
   limit?: number;
-  /** Search query for sheet name */
+  /** Search query for asset name */
   search?: string;
   /** Sort field */
   sortBy?: 'name' | 'owner' | 'modifiedTime' | 'createdTime';

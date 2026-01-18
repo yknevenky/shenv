@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger as honoLogger } from "hono/logger";
-import { sheetsRouter } from "./routes/sheets.js";
+import assetsRouter from "./routes/assets.js";
+import platformsRouter from "./routes/platforms.js";
 import { authRouter } from "./routes/auth.js";
 import { serviceAccountRouter } from "./routes/service-account.js";
 import { governanceRouter } from "./routes/governance.js";
@@ -45,7 +46,11 @@ app.get("/health", (c) => {
 // API Routes
 app.route("/auth", authRouter);
 app.route("/service-account", serviceAccountRouter);
-app.route("/api/sheets", sheetsRouter);
+
+// Platform-agnostic routes (authentication middleware applied in route files)
+app.route("/api/platforms", platformsRouter);
+app.route("/api/assets", assetsRouter);
+
 app.route("/governance", governanceRouter);
 app.route("/approvals", approvalsRouter);
 app.route("/reports", reportsRouter);

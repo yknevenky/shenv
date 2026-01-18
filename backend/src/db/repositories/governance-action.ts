@@ -45,13 +45,13 @@ export class GovernanceActionRepository {
   }
 
   /**
-   * Get all actions for a specific sheet
+   * Get all actions for a specific asset
    */
-  static async findAllBySheet(sheetId: number): Promise<GovernanceAction[]> {
+  static async findAllByAsset(assetId: number): Promise<GovernanceAction[]> {
     return db
       .select()
       .from(governanceActions)
-      .where(eq(governanceActions.sheetId, sheetId))
+      .where(eq(governanceActions.assetId, assetId))
       .orderBy(desc(governanceActions.createdAt));
   }
 

@@ -53,38 +53,25 @@ export class UserRepository {
     return bcrypt.compare(candidatePassword, user.passwordHash);
   }
 
-  // Update service account
+  // Update service account - DEPRECATED: Use platform_credentials table instead
+  // Keeping for backward compatibility, but this is a no-op now
   static async updateServiceAccount(userId: number, serviceAccountJson: string): Promise<User> {
-    const [user] = await db
-      .update(users)
-      .set({
-        serviceAccount: serviceAccountJson,
-        hasServiceAccount: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, userId))
-      .returning();
-
+    // This method is deprecated - service accounts are now stored in platform_credentials table
+    // Just return the user without making any changes
+    const user = await this.findById(userId);
     if (!user) {
-      throw new Error(`Failed to update service account for user ID: ${userId}`);
+      throw new Error(`User not found: ${userId}`);
     }
     return user;
   }
 
-  // Remove service account
+  // Remove service account - DEPRECATED: Use platform_credentials table instead
   static async removeServiceAccount(userId: number): Promise<User> {
-    const [user] = await db
-      .update(users)
-      .set({
-        serviceAccount: null,
-        hasServiceAccount: false,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, userId))
-      .returning();
-
+    // This method is deprecated - service accounts are now stored in platform_credentials table
+    // Just return the user without making any changes
+    const user = await this.findById(userId);
     if (!user) {
-      throw new Error(`Failed to remove service account for user ID: ${userId}`);
+      throw new Error(`User not found: ${userId}`);
     }
     return user;
   }

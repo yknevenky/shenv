@@ -10,9 +10,9 @@ export class PermissionRepository {
    * Create or update a permission (upsert)
    */
   static async upsert(permissionData: NewPermission): Promise<Permission> {
-    const existing = await this.findBySheetAndPermissionId(
-      permissionData.sheetId,
-      permissionData.permissionId
+    const existing = await this.findByAssetAndPermissionId(
+      permissionData.assetId,
+      permissionData.externalPermissionId
     );
 
     if (existing) {
@@ -26,7 +26,7 @@ export class PermissionRepository {
         .returning();
 
       if (!updated) {
-        throw new Error(`Failed to update permission: ${permissionData.permissionId}`);
+        throw new Error(`Failed to update permission: ${permissionData.externalPermissionId}`);
       }
       return updated;
     }
@@ -37,7 +37,7 @@ export class PermissionRepository {
       .returning();
 
     if (!created) {
-      throw new Error(`Failed to create permission: ${permissionData.permissionId}`);
+      throw new Error(`Failed to create permission: ${permissionData.externalPermissionId}`);
     }
     return created;
   }
@@ -57,31 +57,31 @@ export class PermissionRepository {
   }
 
   /**
-   * Find permission by sheet ID and permission ID
+   * Find permission by asset ID and external permission ID
    */
-  static async findBySheetAndPermissionId(
-    sheetId: number,
-    permissionId: string
+  static async findByAssetAndPermissionId(
+    assetId: number,
+    externalPermissionId: string
   ): Promise<Permission | undefined> {
     const [permission] = await db
       .select()
       .from(permissions)
       .where(and(
-        eq(permissions.sheetId, sheetId),
-        eq(permissions.permissionId, permissionId)
+        eq(permissions.assetId, assetId),
+        eq(permissions.externalPermissionId, externalPermissionId)
       ))
       .limit(1);
     return permission;
   }
 
   /**
-   * Get all permissions for a specific sheet
+   * Get all permissions for a specific asset
    */
-  static async findAllBySheet(sheetId: number): Promise<Permission[]> {
+  static async findAllByAsset(assetId: number): Promise<Permission[]> {
     return db
       .select()
       .from(permissions)
-      .where(eq(permissions.sheetId, sheetId))
+      .where(eq(permissions.assetId, assetId))
       .orderBy(desc(permissions.snapshotDate));
   }
 
@@ -97,36 +97,36 @@ export class PermissionRepository {
   }
 
   /**
-   * Get permissions by role for a sheet
+   * Get permissions by role for an asset
    */
-  static async findBySheetAndRole(sheetId: number, role: string): Promise<Permission[]> {
+  static async findByAssetAndRole(assetId: number, role: string): Promise<Permission[]> {
     return db
       .select()
       .from(permissions)
       .where(and(
-        eq(permissions.sheetId, sheetId),
+        eq(permissions.assetId, assetId),
         eq(permissions.role, role)
       ));
   }
 
   /**
-   * Count permissions for a sheet
+   * Count permissions for an asset
    */
-  static async countBySheet(sheetId: number): Promise<number> {
+  static async countByAsset(assetId: number): Promise<number> {
     const result = await db
       .select()
       .from(permissions)
-      .where(eq(permissions.sheetId, sheetId));
+      .where(eq(permissions.assetId, assetId));
     return result.length;
   }
 
   /**
-   * Delete all permissions for a sheet
+   * Delete all permissions for an asset
    */
-  static async deleteAllBySheet(sheetId: number): Promise<void> {
+  static async deleteAllByAsset(assetId: number): Promise<void> {
     await db
       .delete(permissions)
-      .where(eq(permissions.sheetId, sheetId));
+      .where(eq(permissions.assetId, assetId));
   }
 
   /**

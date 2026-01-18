@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { UserRepository } from '../db/repositories/user.js';
+import { PlatformCredentialRepository } from '../db/repositories/platform-credential.js';
 import { generateToken } from '../middleware/auth.js';
 import { logger } from '../utils/logger.js';
 
@@ -28,6 +29,10 @@ authRouter.post('/signup', async (c) => {
     // Create new user (password will be hashed by UserRepository.create)
     const user = await UserRepository.create(email, password);
 
+    // Check if user has any platform credentials
+    const credentials = await PlatformCredentialRepository.findAllByUser(user.id);
+    const hasPlatformCredentials = credentials.length > 0;
+
     // Generate JWT token
     const token = await generateToken({
       userId: user.id,
@@ -42,7 +47,7 @@ authRouter.post('/signup', async (c) => {
       user: {
         id: user.id,
         email: user.email,
-        hasServiceAccount: user.hasServiceAccount,
+        hasPlatformCredentials,
       },
     }, 201);
   } catch (error: any) {
@@ -73,6 +78,10 @@ authRouter.post('/signin', async (c) => {
       return c.json({ error: true, message: 'Invalid email or password' }, 401);
     }
 
+    // Check if user has any platform credentials
+    const credentials = await PlatformCredentialRepository.findAllByUser(user.id);
+    const hasPlatformCredentials = credentials.length > 0;
+
     // Generate JWT token
     const token = await generateToken({
       userId: user.id,
@@ -87,7 +96,7 @@ authRouter.post('/signin', async (c) => {
       user: {
         id: user.id,
         email: user.email,
-        hasServiceAccount: user.hasServiceAccount,
+        hasPlatformCredentials,
       },
     });
   } catch (error: any) {

@@ -12,7 +12,7 @@ export class ApprovalWorkflowService {
    */
   static async createActionWithApprovers(
     userId: number,
-    sheetId: number,
+    assetId: number,
     actionType: 'delete' | 'change_visibility' | 'remove_permission' | 'transfer_ownership',
     requestedBy: string,
     approvers: string[],
@@ -23,7 +23,7 @@ export class ApprovalWorkflowService {
       // Create governance action
       const action = await GovernanceActionRepository.create({
         userId,
-        sheetId,
+        assetId,
         actionType,
         requestedBy,
         reason,
@@ -55,7 +55,7 @@ export class ApprovalWorkflowService {
         targetResource: `action:${action.id}`,
         metadata: {
           actionId: action.id,
-          sheetId,
+          assetId,
           actionType,
           approvers,
           reason,
@@ -197,16 +197,31 @@ export class ApprovalWorkflowService {
       const allApprovals = await ActionApprovalRepository.findAllByAction(actionId);
       const counts = await ActionApprovalRepository.countApprovalsByStatus(actionId);
 
-      const approvers = allApprovals.map(a => ({
-        email: a.approverEmail,
-        status: (a.isApproved === null
-          ? 'pending'
-          : a.isApproved
-          ? 'approved'
-          : 'rejected') as 'approved' | 'rejected' | 'pending',
-        comment: a.comment ?? undefined,
-        respondedAt: a.respondedAt ?? undefined,
-      }));
+      const approvers = allApprovals.map(a => {
+        const approver: {
+          email: string;
+          status: 'approved' | 'rejected' | 'pending';
+          comment?: string;
+          respondedAt?: Date;
+        } = {
+          email: a.approverEmail,
+          status: (a.isApproved === null
+            ? 'pending'
+            : a.isApproved
+            ? 'approved'
+            : 'rejected') as 'approved' | 'rejected' | 'pending',
+        };
+
+        // Add optional fields only if they exist
+        if (a.comment !== null) {
+          approver.comment = a.comment;
+        }
+        if (a.respondedAt !== null) {
+          approver.respondedAt = a.respondedAt;
+        }
+
+        return approver;
+      });
 
       return {
         actionStatus: action.status,

@@ -60,16 +60,22 @@ export class WorkspaceUserRepository {
   }
 
   /**
-   * Find workspace user by email for a specific user
+   * Find workspace user by email and platform for a specific user
    */
-  static async findByEmail(userId: number, email: string): Promise<WorkspaceUser | undefined> {
+  static async findByEmail(userId: number, email: string, platform?: string): Promise<WorkspaceUser | undefined> {
+    const conditions = [
+      eq(workspaceUsers.userId, userId),
+      eq(workspaceUsers.email, email)
+    ];
+
+    if (platform) {
+      conditions.push(eq(workspaceUsers.platform, platform as any));
+    }
+
     const [user] = await db
       .select()
       .from(workspaceUsers)
-      .where(and(
-        eq(workspaceUsers.userId, userId),
-        eq(workspaceUsers.email, email)
-      ))
+      .where(and(...conditions))
       .limit(1);
     return user;
   }
@@ -77,11 +83,34 @@ export class WorkspaceUserRepository {
   /**
    * Get all workspace users for a specific user
    */
-  static async findAllByUser(userId: number): Promise<WorkspaceUser[]> {
+  static async findAllByUser(userId: number, platform?: string): Promise<WorkspaceUser[]> {
+    if (platform) {
+      return db
+        .select()
+        .from(workspaceUsers)
+        .where(and(
+          eq(workspaceUsers.userId, userId),
+          eq(workspaceUsers.platform, platform as any)
+        ));
+    }
+
     return db
       .select()
       .from(workspaceUsers)
       .where(eq(workspaceUsers.userId, userId));
+  }
+
+  /**
+   * Get workspace users by platform
+   */
+  static async findByPlatform(userId: number, platform: string): Promise<WorkspaceUser[]> {
+    return db
+      .select()
+      .from(workspaceUsers)
+      .where(and(
+        eq(workspaceUsers.userId, userId),
+        eq(workspaceUsers.platform, platform as any)
+      ));
   }
 
   /**

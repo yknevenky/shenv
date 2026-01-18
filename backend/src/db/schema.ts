@@ -1,21 +1,65 @@
 import { pgTable, serial, text, boolean, timestamp, integer, jsonb, pgEnum, date } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
+// ==================== ENUMS ====================
+// Platform providers (cloud storage platforms)
+export const platformEnum = pgEnum('platform', [
+  'google_workspace',
+  'microsoft_365',
+  'zoho',
+  'dropbox',
+  'box',
+  'other'
+]);
+
+// Asset types (platform-agnostic file types)
+export const assetTypeEnum = pgEnum('asset_type', [
+  'spreadsheet',    // Google Sheets, Excel, Zoho Sheet
+  'document',       // Google Docs, Word, Zoho Writer
+  'presentation',   // Google Slides, PowerPoint, Zoho Show
+  'form',           // Google Forms, Microsoft Forms
+  'pdf',            // PDF files
+  'folder',         // Folders/directories
+  'database',       // Airtable, Notion, etc.
+  'whiteboard',     // Miro, FigJam, etc.
+  'other'           // Other file types
+]);
+
+// Credential types
+export const credentialTypeEnum = pgEnum('credential_type', [
+  'service_account',  // Service account JSON (Google, etc.)
+  'oauth',            // OAuth tokens
+  'api_key',          // API keys
+  'other'             // Other authentication methods
+]);
+
 // ==================== USERS TABLE ====================
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
-  serviceAccount: text('service_account'), // Encrypted JSON
-  hasServiceAccount: boolean('has_service_account').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ==================== PLATFORM CREDENTIALS TABLE ====================
+// Stores encrypted credentials for multiple platforms per user
+export const platformCredentials = pgTable('platform_credentials', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  platform: platformEnum('platform').notNull(),
+  credentials: text('credentials').notNull(), // AES-256 encrypted JSON
+  credentialType: credentialTypeEnum('credential_type').notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastUsedAt: timestamp('last_used_at'),
 });
 
 // ==================== WORKSPACE USERS TABLE ====================
 export const workspaceUsers = pgTable('workspace_users', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').notNull().references(() => users.id),
+  platform: platformEnum('platform').notNull(), // Which platform this user belongs to
   email: text('email').notNull(),
   fullName: text('full_name'),
   isAdmin: boolean('is_admin').default(false),
@@ -25,11 +69,15 @@ export const workspaceUsers = pgTable('workspace_users', {
   lastSyncedAt: timestamp('last_synced_at'),
 });
 
-// ==================== SHEETS TABLE ====================
-export const sheets = pgTable('sheets', {
+// ==================== ASSETS TABLE ====================
+// Platform-agnostic storage for all cloud assets (sheets, docs, files, etc.)
+export const assets = pgTable('assets', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').notNull().references(() => users.id),
-  sheetId: text('sheet_id').notNull().unique(),
+  platform: platformEnum('platform').notNull(),
+  externalId: text('external_id').notNull(), // Platform's file/asset ID (Google Drive ID, OneDrive ID, etc.)
+  assetType: assetTypeEnum('asset_type').notNull(),
+  mimeType: text('mime_type'), // Platform-specific MIME type
   name: text('name').notNull(),
   ownerEmail: text('owner_email').notNull(),
   url: text('url').notNull(),
@@ -45,8 +93,8 @@ export const sheets = pgTable('sheets', {
 // ==================== PERMISSIONS TABLE ====================
 export const permissions = pgTable('permissions', {
   id: serial('id').primaryKey(),
-  sheetId: integer('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
-  permissionId: text('permission_id').notNull(),
+  assetId: integer('asset_id').notNull().references(() => assets.id, { onDelete: 'cascade' }),
+  externalPermissionId: text('external_permission_id').notNull(), // Platform's permission ID
   email: text('email'),
   role: text('role').notNull(),
   type: text('type').notNull(),
@@ -61,7 +109,7 @@ export const actionStatusEnum = pgEnum('action_status', ['pending', 'approved', 
 export const governanceActions = pgTable('governance_actions', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').notNull().references(() => users.id),
-  sheetId: integer('sheet_id').notNull().references(() => sheets.id),
+  assetId: integer('asset_id').notNull().references(() => assets.id),
   actionType: actionTypeEnum('action_type').notNull(),
   status: actionStatusEnum('status').default('pending').notNull(),
   requestedBy: text('requested_by').notNull(), // email
@@ -103,26 +151,42 @@ export const monthlyReports = pgTable('monthly_reports', {
 });
 
 // ==================== RELATIONS ====================
-export const sheetsRelations = relations(sheets, ({ many, one }) => ({
+export const usersRelations = relations(users, ({ many }) => ({
+  assets: many(assets),
+  platformCredentials: many(platformCredentials),
+  workspaceUsers: many(workspaceUsers),
+  governanceActions: many(governanceActions),
+  auditLogs: many(auditLogs),
+  monthlyReports: many(monthlyReports),
+}));
+
+export const platformCredentialsRelations = relations(platformCredentials, ({ one }) => ({
+  user: one(users, {
+    fields: [platformCredentials.userId],
+    references: [users.id],
+  }),
+}));
+
+export const assetsRelations = relations(assets, ({ many, one }) => ({
   permissions: many(permissions),
   actions: many(governanceActions),
   user: one(users, {
-    fields: [sheets.userId],
+    fields: [assets.userId],
     references: [users.id],
   }),
 }));
 
 export const permissionsRelations = relations(permissions, ({ one }) => ({
-  sheet: one(sheets, {
-    fields: [permissions.sheetId],
-    references: [sheets.id],
+  asset: one(assets, {
+    fields: [permissions.assetId],
+    references: [assets.id],
   }),
 }));
 
 export const governanceActionsRelations = relations(governanceActions, ({ one, many }) => ({
-  sheet: one(sheets, {
-    fields: [governanceActions.sheetId],
-    references: [sheets.id],
+  asset: one(assets, {
+    fields: [governanceActions.assetId],
+    references: [assets.id],
   }),
   user: one(users, {
     fields: [governanceActions.userId],
