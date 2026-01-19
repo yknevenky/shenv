@@ -36,7 +36,7 @@ export class WorkspaceService {
         const response = await admin.users.list({
           customer: 'my_customer', // Special value for the customer associated with the domain
           maxResults: 500,
-          pageToken: pageToken || undefined,
+          ...(pageToken && { pageToken }),
           projection: 'full',
         });
 

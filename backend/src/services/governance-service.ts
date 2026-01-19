@@ -2,7 +2,7 @@ import { getDriveClient } from './google-auth.js';
 import { logger } from '../utils/logger.js';
 import { GovernanceActionRepository } from '../db/repositories/governance-action.js';
 import { AuditLogRepository } from '../db/repositories/audit-log.js';
-import { SheetRepository } from '../db/repositories/sheet.js';
+import { AssetRepository } from '../db/repositories/asset.js';
 
 /**
  * Service for executing governance actions on Google Sheets
@@ -322,10 +322,10 @@ export class GovernanceService {
         return { success: false, error: 'Action is not approved' };
       }
 
-      // Get sheet details
-      const sheet = await SheetRepository.findById(action.sheetId);
-      if (!sheet) {
-        return { success: false, error: 'Sheet not found' };
+      // Get asset details
+      const asset = await AssetRepository.findById(action.assetId);
+      if (!asset) {
+        return { success: false, error: 'Asset not found' };
       }
 
       const metadata = action.metadata as any;
@@ -333,13 +333,13 @@ export class GovernanceService {
 
       switch (action.actionType) {
         case 'delete':
-          result = await this.deleteSheet(serviceAccountJson, sheet.sheetId, userId, actionId, actorEmail);
+          result = await this.deleteSheet(serviceAccountJson, asset.externalId, userId, actionId, actorEmail);
           break;
 
         case 'change_visibility':
           result = await this.changeSheetVisibility(
             serviceAccountJson,
-            sheet.sheetId,
+            asset.externalId,
             metadata?.visibility || 'private',
             userId,
             actionId,
@@ -350,7 +350,7 @@ export class GovernanceService {
         case 'remove_permission':
           result = await this.removePermission(
             serviceAccountJson,
-            sheet.sheetId,
+            asset.externalId,
             metadata?.permissionId,
             userId,
             actionId,
@@ -361,7 +361,7 @@ export class GovernanceService {
         case 'transfer_ownership':
           result = await this.transferOwnership(
             serviceAccountJson,
-            sheet.sheetId,
+            asset.externalId,
             metadata?.newOwnerEmail,
             userId,
             actionId,

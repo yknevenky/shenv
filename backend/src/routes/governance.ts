@@ -10,9 +10,10 @@ import { GovernanceActionRepository } from '../db/repositories/governance-action
 import { ActionApprovalRepository } from '../db/repositories/action-approval.js';
 import { AuditLogRepository } from '../db/repositories/audit-log.js';
 import { AssetRepository } from '../db/repositories/asset.js';
+import { PlatformCredentialRepository } from '../db/repositories/platform-credential.js';
 import { GovernanceService } from '../services/governance-service.js';
 import { ApprovalWorkflowService } from '../services/approval-workflow-service.js';
-import { decrypt } from './service-account.js';
+import { decrypt } from '../utils/encryption.js';
 import { logger } from '../utils/logger.js';
 import type { ErrorResponse } from '../types/index.js';
 
@@ -227,11 +228,8 @@ governanceRouter.post('/actions/:id/execute', async (c) => {
     const user = await UserRepository.findById(userId);
     const actionId = parseInt(c.req.param('id'));
 
-    if (!user || !user.hasServiceAccount || !user.serviceAccount) {
-      return c.json({
-        error: true,
-        message: 'No service account configured',
-      }, 400);
+    if (!user) {
+      return c.json({ error: true, message: 'User not found' }, 404);
     }
 
     const action = await GovernanceActionRepository.findById(actionId);
@@ -251,13 +249,28 @@ governanceRouter.post('/actions/:id/execute', async (c) => {
       }, 400);
     }
 
-    logger.info('Executing governance action', { userId, actionId });
+    // Get the asset to determine which platform credentials to use
+    const asset = await AssetRepository.findById(action.assetId);
+    if (!asset) {
+      return c.json({ error: true, message: 'Asset not found' }, 404);
+    }
 
-    const serviceAccountJson = decrypt(user.serviceAccount);
+    // Get platform credentials
+    const credentials = await PlatformCredentialRepository.findByUserAndPlatform(userId, asset.platform);
+    if (!credentials || !credentials.isActive) {
+      return c.json({
+        error: true,
+        message: `No active credentials configured for platform: ${asset.platform}`,
+      }, 400);
+    }
+
+    logger.info('Executing governance action', { userId, actionId, platform: asset.platform });
+
+    const credentialsJson = decrypt(credentials.credentials);
 
     const result = await GovernanceService.executeAction(
       actionId,
-      serviceAccountJson,
+      credentialsJson,
       userId,
       user.email
     );

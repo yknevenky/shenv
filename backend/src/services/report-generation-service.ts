@@ -1,24 +1,24 @@
 import { logger } from '../utils/logger.js';
 import { MonthlyReportRepository } from '../db/repositories/monthly-report.js';
-import { SheetRepository } from '../db/repositories/sheet.js';
+import { AssetRepository } from '../db/repositories/asset.js';
 import { WorkspaceUserRepository } from '../db/repositories/workspace-user.js';
 import { GovernanceActionRepository } from '../db/repositories/governance-action.js';
 
 interface ReportData {
   // Overview
-  totalSheets: number;
+  totalAssets: number;
   totalWorkspaceUsers: number;
   averageRiskScore: number;
 
-  // Sheet Categories
-  orphanedSheets: number;
-  inactiveSheets: number;
-  highRiskSheets: number;
+  // Asset Categories
+  orphanedAssets: number;
+  inactiveAssets: number;
+  highRiskAssets: number;
 
   // Risk Breakdown
-  sheetsWithAnyoneAccess: number;
-  sheetsWithDomainAccess: number;
-  sheetsWithExternalUsers: number;
+  assetsWithAnyoneAccess: number;
+  assetsWithDomainAccess: number;
+  assetsWithExternalUsers: number;
 
   // Activity
   governanceActionsCreated: number;
@@ -26,23 +26,23 @@ interface ReportData {
   governanceActionsFailed: number;
 
   // Top Risks
-  topRiskySheets: Array<{
-    sheetId: string;
+  topRiskyAssets: Array<{
+    assetId: string;
     name: string;
     owner: string;
     riskScore: number;
     reasons: string[];
   }>;
 
-  // Sheet Distribution
-  sheetsByRiskLevel: {
+  // Asset Distribution
+  assetsByRiskLevel: {
     low: number;      // 0-30
     medium: number;   // 31-60
     high: number;     // 61-100
   };
 
   // Ownership
-  sheetsOwnedByUser: number;
+  assetsOwnedByUser: number;
   totalUniqueOwners: number;
 }
 
@@ -61,7 +61,7 @@ export class ReportGenerationService {
       logger.info('Generating monthly report', { userId, reportMonth });
 
       // Format report month as YYYY-MM-DD string
-      const reportMonthStr = reportMonth.toISOString().split('T')[0];
+      const reportMonthStr = reportMonth.toISOString().split('T')[0] || reportMonth.toISOString();
 
       // Check if report already exists for this month
       const existingReport = await MonthlyReportRepository.findByUserAndMonth(
@@ -82,7 +82,7 @@ export class ReportGenerationService {
       }
 
       // Gather data
-      const { sheets: allSheets } = await SheetRepository.findAllByUser(userId, {
+      const { assets: allAssets } = await AssetRepository.findAllByUser(userId, {
         limit: 10000,
       });
 
@@ -99,64 +99,64 @@ export class ReportGenerationService {
       });
 
       // Calculate metrics
-      const totalSheets = allSheets.length;
+      const totalAssets = allAssets.length;
       const totalWorkspaceUsers = workspaceUsers.length;
 
-      const totalRiskScore = allSheets.reduce((sum, sheet) => sum + (sheet.riskScore || 0), 0);
-      const averageRiskScore = totalSheets > 0 ? Math.round(totalRiskScore / totalSheets) : 0;
+      const totalRiskScore = allAssets.reduce((sum, asset) => sum + (asset.riskScore || 0), 0);
+      const averageRiskScore = totalAssets > 0 ? Math.round(totalRiskScore / totalAssets) : 0;
 
-      const orphanedSheets = allSheets.filter(s => s.isOrphaned).length;
-      const inactiveSheets = allSheets.filter(s => s.isInactive).length;
-      const highRiskSheets = allSheets.filter(s => (s.riskScore || 0) >= 70).length;
+      const orphanedAssets = allAssets.filter(s => s.isOrphaned).length;
+      const inactiveAssets = allAssets.filter(s => s.isInactive).length;
+      const highRiskAssets = allAssets.filter(s => (s.riskScore || 0) >= 70).length;
 
       // Risk breakdown (simplified - in production, fetch actual permission data)
-      const sheetsWithAnyoneAccess = allSheets.filter(s => (s.riskScore || 0) >= 40).length;
-      const sheetsWithDomainAccess = allSheets.filter(s => (s.riskScore || 0) >= 25).length;
-      const sheetsWithExternalUsers = allSheets.filter(s => (s.riskScore || 0) >= 20).length;
+      const assetsWithAnyoneAccess = allAssets.filter(s => (s.riskScore || 0) >= 40).length;
+      const assetsWithDomainAccess = allAssets.filter(s => (s.riskScore || 0) >= 25).length;
+      const assetsWithExternalUsers = allAssets.filter(s => (s.riskScore || 0) >= 20).length;
 
       // Governance activity
       const governanceActionsCreated = monthActions.length;
       const governanceActionsExecuted = monthActions.filter(a => a.status === 'executed').length;
       const governanceActionsFailed = monthActions.filter(a => a.status === 'failed').length;
 
-      // Top risky sheets
-      const topRiskySheets = allSheets
+      // Top risky assets
+      const topRiskyAssets = allAssets
         .sort((a, b) => (b.riskScore || 0) - (a.riskScore || 0))
         .slice(0, 10)
-        .map(sheet => ({
-          sheetId: sheet.sheetId,
-          name: sheet.name,
-          owner: sheet.ownerEmail,
-          riskScore: sheet.riskScore || 0,
-          reasons: this.getRiskReasons(sheet.riskScore || 0, sheet.isOrphaned || false, sheet.isInactive || false),
+        .map(asset => ({
+          assetId: asset.externalId,
+          name: asset.name,
+          owner: asset.ownerEmail,
+          riskScore: asset.riskScore || 0,
+          reasons: this.getRiskReasons(asset.riskScore || 0, asset.isOrphaned || false, asset.isInactive || false),
         }));
 
-      // Sheet distribution by risk level
-      const sheetsByRiskLevel = {
-        low: allSheets.filter(s => (s.riskScore || 0) <= 30).length,
-        medium: allSheets.filter(s => (s.riskScore || 0) > 30 && (s.riskScore || 0) <= 60).length,
-        high: allSheets.filter(s => (s.riskScore || 0) > 60).length,
+      // Asset distribution by risk level
+      const assetsByRiskLevel = {
+        low: allAssets.filter(s => (s.riskScore || 0) <= 30).length,
+        medium: allAssets.filter(s => (s.riskScore || 0) > 30 && (s.riskScore || 0) <= 60).length,
+        high: allAssets.filter(s => (s.riskScore || 0) > 60).length,
       };
 
       // Ownership (simplified - would need to fetch user email to match properly)
-      const uniqueOwners = new Set(allSheets.map(s => s.ownerEmail)).size;
+      const uniqueOwners = new Set(allAssets.map(s => s.ownerEmail)).size;
 
       const reportData: ReportData = {
-        totalSheets,
+        totalAssets,
         totalWorkspaceUsers,
         averageRiskScore,
-        orphanedSheets,
-        inactiveSheets,
-        highRiskSheets,
-        sheetsWithAnyoneAccess,
-        sheetsWithDomainAccess,
-        sheetsWithExternalUsers,
+        orphanedAssets,
+        inactiveAssets,
+        highRiskAssets,
+        assetsWithAnyoneAccess,
+        assetsWithDomainAccess,
+        assetsWithExternalUsers,
         governanceActionsCreated,
         governanceActionsExecuted,
         governanceActionsFailed,
-        topRiskySheets,
-        sheetsByRiskLevel,
-        sheetsOwnedByUser: 0, // Would need user email to calculate
+        topRiskyAssets,
+        assetsByRiskLevel,
+        assetsOwnedByUser: 0, // Would need user email to calculate
         totalUniqueOwners: uniqueOwners,
       };
 
@@ -171,7 +171,7 @@ export class ReportGenerationService {
         userId,
         reportMonth,
         reportId: report.id,
-        totalSheets,
+        totalAssets,
       });
 
       return {
@@ -187,7 +187,7 @@ export class ReportGenerationService {
   /**
    * Generate reports for all users for a specific month
    */
-  static async generateReportsForAllUsers(reportMonth: Date): Promise<{
+  static async generateReportsForAllUsers(_reportMonth: Date): Promise<{
     successful: number;
     failed: number;
     errors: Array<{ userId: number; error: string }>;
@@ -255,8 +255,8 @@ export class ReportGenerationService {
       actionsDelta: number;
     };
   }> {
-    const report1 = await MonthlyReportRepository.findByUserAndMonth(userId, month1.toISOString().split('T')[0]);
-    const report2 = await MonthlyReportRepository.findByUserAndMonth(userId, month2.toISOString().split('T')[0]);
+    const report1 = await MonthlyReportRepository.findByUserAndMonth(userId, month1.toISOString().split('T')[0] || month1.toISOString());
+    const report2 = await MonthlyReportRepository.findByUserAndMonth(userId, month2.toISOString().split('T')[0] || month2.toISOString());
 
     const data1 = report1?.reportData as ReportData | null;
     const data2 = report2?.reportData as ReportData | null;
@@ -279,10 +279,10 @@ export class ReportGenerationService {
       month1Data: data1,
       month2Data: data2,
       changes: {
-        totalSheetsDelta: data2.totalSheets - data1.totalSheets,
+        totalSheetsDelta: data2.totalAssets - data1.totalAssets,
         riskScoreDelta: data2.averageRiskScore - data1.averageRiskScore,
-        orphanedSheetsDelta: data2.orphanedSheets - data1.orphanedSheets,
-        highRiskSheetsDelta: data2.highRiskSheets - data1.highRiskSheets,
+        orphanedSheetsDelta: data2.orphanedAssets - data1.orphanedAssets,
+        highRiskSheetsDelta: data2.highRiskAssets - data1.highRiskAssets,
         actionsDelta: data2.governanceActionsExecuted - data1.governanceActionsExecuted,
       },
     };
@@ -306,11 +306,11 @@ export class ReportGenerationService {
 
     // Generate highlights
     const highlights: string[] = [];
-    if (data.highRiskSheets > 0) {
-      highlights.push(`${data.highRiskSheets} high-risk sheets identified`);
+    if (data.highRiskAssets > 0) {
+      highlights.push(`${data.highRiskAssets} high-risk assets identified`);
     }
-    if (data.orphanedSheets > 0) {
-      highlights.push(`${data.orphanedSheets} orphaned sheets found`);
+    if (data.orphanedAssets > 0) {
+      highlights.push(`${data.orphanedAssets} orphaned assets found`);
     }
     if (data.governanceActionsExecuted > 0) {
       highlights.push(`${data.governanceActionsExecuted} governance actions executed`);
@@ -321,23 +321,23 @@ export class ReportGenerationService {
 
     // Generate recommendations
     const recommendations: string[] = [];
-    if (data.sheetsWithAnyoneAccess > 0) {
+    if (data.assetsWithAnyoneAccess > 0) {
       recommendations.push(
-        `Review ${data.sheetsWithAnyoneAccess} sheets with public access`
+        `Review ${data.assetsWithAnyoneAccess} assets with public access`
       );
     }
-    if (data.orphanedSheets > 0) {
+    if (data.orphanedAssets > 0) {
       recommendations.push(
-        `Transfer ownership of ${data.orphanedSheets} orphaned sheets`
+        `Transfer ownership of ${data.orphanedAssets} orphaned assets`
       );
     }
-    if (data.inactiveSheets > 10) {
+    if (data.inactiveAssets > 10) {
       recommendations.push(
-        `Consider archiving ${data.inactiveSheets} inactive sheets`
+        `Consider archiving ${data.inactiveAssets} inactive assets`
       );
     }
-    if (data.highRiskSheets > 5) {
-      recommendations.push('Prioritize governance actions for high-risk sheets');
+    if (data.highRiskAssets > 5) {
+      recommendations.push('Prioritize governance actions for high-risk assets');
     }
 
     return {

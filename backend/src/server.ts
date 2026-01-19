@@ -4,7 +4,6 @@ import { logger as honoLogger } from "hono/logger";
 import assetsRouter from "./routes/assets.js";
 import platformsRouter from "./routes/platforms.js";
 import { authRouter } from "./routes/auth.js";
-import { serviceAccountRouter } from "./routes/service-account.js";
 import { governanceRouter } from "./routes/governance.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { reportsRouter } from "./routes/reports.js";
@@ -45,7 +44,6 @@ app.get("/health", (c) => {
 
 // API Routes
 app.route("/auth", authRouter);
-app.route("/service-account", serviceAccountRouter);
 
 // Platform-agnostic routes (authentication middleware applied in route files)
 app.route("/api/platforms", platformsRouter);

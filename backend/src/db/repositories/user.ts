@@ -55,7 +55,7 @@ export class UserRepository {
 
   // Update service account - DEPRECATED: Use platform_credentials table instead
   // Keeping for backward compatibility, but this is a no-op now
-  static async updateServiceAccount(userId: number, serviceAccountJson: string): Promise<User> {
+  static async updateServiceAccount(userId: number, _serviceAccountJson: string): Promise<User> {
     // This method is deprecated - service accounts are now stored in platform_credentials table
     // Just return the user without making any changes
     const user = await this.findById(userId);
