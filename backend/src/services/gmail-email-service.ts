@@ -29,13 +29,197 @@ export interface EmailSenderGroup {
   messages: EmailMessage[];
 }
 
+export interface LabelStats {
+  id: string;
+  name: string;
+  type: 'system' | 'user';
+  messagesTotal: number;
+  messagesUnread: number;
+  threadsTotal: number;
+  threadsUnread: number;
+  color?: {
+    textColor?: string;
+    backgroundColor?: string;
+  };
+}
+
+export interface InboxStats {
+  totalMessages: number;
+  totalThreads: number;
+  labels: LabelStats[];
+  systemLabels: LabelStats[];
+  userLabels: LabelStats[];
+}
+
+export interface PaginatedEmailResult {
+  emails: EmailMessage[];
+  nextPageToken: string | undefined;
+  resultSizeEstimate: number;
+  fetchedCount: number;
+}
+
 export class GmailEmailService {
   /**
-   * Fetch all emails from user's inbox
+   * Get comprehensive email stats by fetching all labels and their stats
+   */
+  static async getInboxStats(accessToken: string): Promise<InboxStats> {
+    try {
+      const gmail = GmailOAuthService.getGmailClient(accessToken);
+
+      // Get user profile for totals
+      const profile = await gmail.users.getProfile({ userId: 'me' });
+      const totalMessages = profile.data.messagesTotal || 0;
+      const totalThreads = profile.data.threadsTotal || 0;
+
+      // List all labels
+      const labelsResponse = await gmail.users.labels.list({ userId: 'me' });
+      const labelsList = labelsResponse.data.labels || [];
+
+      logger.info(`Found ${labelsList.length} labels`);
+
+      // Fetch detailed stats for each label in parallel
+      const labelStatsPromises = labelsList.map(async (label): Promise<LabelStats | null> => {
+        if (!label.id) return null;
+
+        try {
+          const details = await gmail.users.labels.get({
+            userId: 'me',
+            id: label.id,
+          });
+
+          const stats: LabelStats = {
+            id: label.id,
+            name: details.data.name || label.id,
+            type: details.data.type === 'system' ? 'system' : 'user',
+            messagesTotal: details.data.messagesTotal || 0,
+            messagesUnread: details.data.messagesUnread || 0,
+            threadsTotal: details.data.threadsTotal || 0,
+            threadsUnread: details.data.threadsUnread || 0,
+          };
+
+          // Include color for user labels if available
+          if (details.data.color) {
+            const color: { textColor?: string; backgroundColor?: string } = {};
+            if (details.data.color.textColor) {
+              color.textColor = details.data.color.textColor;
+            }
+            if (details.data.color.backgroundColor) {
+              color.backgroundColor = details.data.color.backgroundColor;
+            }
+            if (Object.keys(color).length > 0) {
+              stats.color = color;
+            }
+          }
+
+          return stats;
+        } catch (error) {
+          logger.warn(`Failed to get details for label ${label.id}`, { error });
+          return null;
+        }
+      });
+
+      const allLabelStats = await Promise.all(labelStatsPromises);
+      const labels = allLabelStats.filter((l): l is LabelStats => l !== null);
+
+      // Separate system and user labels
+      const systemLabels = labels.filter(l => l.type === 'system');
+      const userLabels = labels.filter(l => l.type === 'user');
+
+      logger.info('Retrieved all label stats', {
+        totalMessages,
+        totalThreads,
+        systemLabels: systemLabels.length,
+        userLabels: userLabels.length,
+      });
+
+      return {
+        totalMessages,
+        totalThreads,
+        labels,
+        systemLabels,
+        userLabels,
+      };
+    } catch (error) {
+      logger.error('Failed to get inbox stats', { error });
+      throw new Error(`Failed to get inbox stats: ${error}`);
+    }
+  }
+
+  /**
+   * Fetch emails with pagination support
+   */
+  static async fetchEmailsPaginated(
+    accessToken: string,
+    maxResults: number = 100,
+    pageToken?: string
+  ): Promise<PaginatedEmailResult> {
+    try {
+      logger.info('Fetching emails with pagination', { maxResults, hasPageToken: !!pageToken });
+
+      const gmail = GmailOAuthService.getGmailClient(accessToken);
+      const emails: EmailMessage[] = [];
+
+      // Cap maxResults at 500 (Gmail API limit)
+      const cappedMaxResults = Math.min(maxResults, 500);
+
+      const listParams: any = {
+        userId: 'me',
+        maxResults: cappedMaxResults,
+        q: 'in:inbox',
+      };
+
+      if (pageToken) {
+        listParams.pageToken = pageToken;
+      }
+
+      const response = await gmail.users.messages.list(listParams);
+      const messages = response.data.messages || [];
+
+      // Fetch message details for each message in this page
+      for (const message of messages) {
+        if (!message.id) continue;
+
+        try {
+          const fullMessage = await gmail.users.messages.get({
+            userId: 'me',
+            id: message.id,
+            format: 'metadata',
+            metadataHeaders: ['From', 'Subject', 'Date'],
+          });
+
+          const email = this.parseEmailMessage(fullMessage.data);
+          if (email) {
+            emails.push(email);
+          }
+        } catch (error) {
+          logger.warn(`Failed to fetch message ${message.id}`, { error });
+        }
+      }
+
+      logger.info(`Fetched ${emails.length} emails`, {
+        hasMore: !!response.data.nextPageToken,
+        resultSizeEstimate: response.data.resultSizeEstimate,
+      });
+
+      return {
+        emails,
+        nextPageToken: response.data.nextPageToken || undefined,
+        resultSizeEstimate: response.data.resultSizeEstimate || 0,
+        fetchedCount: emails.length,
+      };
+    } catch (error) {
+      logger.error('Failed to fetch emails with pagination', { error });
+      throw new Error(`Gmail email fetch failed: ${error}`);
+    }
+  }
+
+  /**
+   * Fetch all emails from user's inbox (use fetchEmailsPaginated for large inboxes)
+   * @deprecated Use fetchEmailsPaginated for better control over large inboxes
    */
   static async fetchAllEmails(accessToken: string): Promise<EmailMessage[]> {
     try {
-      logger.info('Starting Gmail email discovery');
+      logger.info('Starting Gmail email discovery (fetching all)');
 
       const gmail = GmailOAuthService.getGmailClient(accessToken);
       const emails: EmailMessage[] = [];
@@ -46,7 +230,7 @@ export class GmailEmailService {
         const listParams: any = {
           userId: 'me',
           maxResults: 500,
-          q: 'in:inbox', // Only inbox emails
+          q: 'in:inbox',
         };
 
         if (pageToken) {

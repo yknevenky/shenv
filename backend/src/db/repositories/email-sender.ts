@@ -4,7 +4,7 @@
  * Database operations for email senders
  */
 
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import { db } from '../connection.js';
 import { emailSenders } from '../schema.js';
 import { logger } from '../../utils/logger.js';
@@ -69,8 +69,7 @@ export class EmailSenderRepository {
       const [sender] = await db
         .select()
         .from(emailSenders)
-        .where(eq(emailSenders.userId, userId))
-        .where(eq(emailSenders.senderEmail, senderEmail));
+        .where(and(eq(emailSenders.userId, userId), eq(emailSenders.senderEmail, senderEmail)));
 
       return sender || null;
     } catch (error) {

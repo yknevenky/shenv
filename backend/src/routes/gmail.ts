@@ -16,8 +16,18 @@ import { logger } from '../utils/logger.js';
 const app = new Hono<{ Variables: AuthVariables }>();
 
 // Apply authentication middleware to all routes except OAuth callback
-app.use('/oauth/callback', async (c, next) => await next());
-app.use('*', jwtMiddleware, attachUser);
+app.use('*', async (c, next) => {
+  // Skip auth for OAuth callback (check both full path and relative path)
+  const path = c.req.path;
+  if (path === '/oauth/callback' || path.includes('/oauth/callback')) {
+    return next();
+  }
+
+  // Chain JWT middleware and user attachment
+  return jwtMiddleware(c, async () => {
+    await attachUser(c, next);
+  });
+});
 
 /**
  * POST /api/gmail/oauth/authorize
@@ -185,8 +195,71 @@ app.delete('/oauth/revoke', async (c) => {
 });
 
 /**
+ * GET /api/gmail/inbox/stats
+ * Get inbox email count and stats (fast endpoint)
+ */
+app.get('/inbox/stats', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: true, message: 'Unauthorized' }, 401);
+    }
+
+    // Get tokens
+    const tokens = await GmailOAuthTokenRepository.findByUserId(user.id);
+    if (!tokens) {
+      return c.json({
+        error: true,
+        message: 'Gmail not connected. Please authorize first.',
+      }, 400);
+    }
+
+    // Get valid access token
+    let accessToken = GmailOAuthService.decryptTokens(tokens.accessToken, tokens.refreshToken).accessToken;
+
+    if (new Date() >= tokens.expiresAt) {
+      const refreshToken = GmailOAuthService.decryptTokens(tokens.accessToken, tokens.refreshToken).refreshToken;
+      const refreshed = await GmailOAuthService.refreshAccessToken(refreshToken);
+
+      const { encryptedAccessToken } = GmailOAuthService.encryptTokens({
+        accessToken: refreshed.accessToken,
+        refreshToken,
+        expiresAt: refreshed.expiresAt,
+        scope: tokens.scope,
+      });
+      await GmailOAuthTokenRepository.upsert(
+        user.id,
+        encryptedAccessToken,
+        tokens.refreshToken,
+        refreshed.expiresAt,
+        tokens.scope
+      );
+
+      accessToken = refreshed.accessToken;
+    }
+
+    const stats = await GmailEmailService.getInboxStats(accessToken);
+
+    return c.json({
+      success: true,
+      data: stats,
+    });
+  } catch (error: any) {
+    logger.error('Failed to get inbox stats', { error });
+    return c.json({
+      error: true,
+      message: error.message || 'Failed to get inbox stats',
+    }, 500);
+  }
+});
+
+/**
  * POST /api/gmail/emails/discover
- * Discover and store all emails from Gmail inbox
+ * Discover and store emails from Gmail inbox with pagination support
+ *
+ * Body params:
+ * - maxResults: number (default 100, max 500) - emails to fetch per page
+ * - pageToken: string (optional) - token for next page from previous response
  */
 app.post('/emails/discover', async (c) => {
   try {
@@ -194,6 +267,11 @@ app.post('/emails/discover', async (c) => {
     if (!user) {
       return c.json({ error: true, message: 'Unauthorized' }, 401);
     }
+
+    // Parse request body
+    const body = await c.req.json().catch(() => ({}));
+    const maxResults = Math.min(Math.max(body.maxResults || 100, 1), 500);
+    const pageToken = body.pageToken as string | undefined;
 
     // Get tokens
     const tokens = await GmailOAuthTokenRepository.findByUserId(user.id);
@@ -230,14 +308,14 @@ app.post('/emails/discover', async (c) => {
       accessToken = refreshed.accessToken;
     }
 
-    // Fetch all emails
-    logger.info('Starting email discovery', { userId: user.id });
-    const emails = await GmailEmailService.fetchAllEmails(accessToken);
+    // Fetch emails with pagination
+    logger.info('Starting paginated email discovery', { userId: user.id, maxResults, hasPageToken: !!pageToken });
+    const result = await GmailEmailService.fetchEmailsPaginated(accessToken, maxResults, pageToken);
 
-    // Group by sender
-    const senderGroups = GmailEmailService.groupEmailsBySender(emails);
+    // Group by sender and store
+    const senderGroups = GmailEmailService.groupEmailsBySender(result.emails);
+    let storedEmails = 0;
 
-    // Store in database
     for (const group of senderGroups) {
       // Create/update sender
       const sender = await EmailSenderRepository.upsert(
@@ -253,7 +331,7 @@ app.post('/emails/discover', async (c) => {
       for (const email of group.messages) {
         await EmailRepository.upsert({
           userId: user.id,
-          senderId: sender.id,
+          senderId: sender!.id,
           gmailMessageId: email.gmailMessageId,
           threadId: email.threadId,
           subject: email.subject || null,
@@ -263,22 +341,29 @@ app.post('/emails/discover', async (c) => {
           hasAttachment: email.hasAttachment,
           labels: email.labels,
         });
+        storedEmails++;
       }
     }
 
-    logger.info('Email discovery completed', {
+    logger.info('Paginated email discovery completed', {
       userId: user.id,
-      totalEmails: emails.length,
+      fetchedEmails: result.fetchedCount,
+      storedEmails,
       uniqueSenders: senderGroups.length,
+      hasMore: !!result.nextPageToken,
     });
 
     return c.json({
       success: true,
       data: {
-        totalEmails: emails.length,
+        fetchedEmails: result.fetchedCount,
+        storedEmails,
         uniqueSenders: senderGroups.length,
+        nextPageToken: result.nextPageToken,
+        hasMore: !!result.nextPageToken,
+        resultSizeEstimate: result.resultSizeEstimate,
       },
-      message: `Discovered ${emails.length} emails from ${senderGroups.length} senders`,
+      message: `Fetched ${result.fetchedCount} emails from ${senderGroups.length} senders`,
     });
   } catch (error: any) {
     logger.error('Email discovery failed', { error });

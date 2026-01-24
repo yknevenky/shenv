@@ -4,7 +4,7 @@
  * Database operations for emails
  */
 
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, inArray } from 'drizzle-orm';
 import { db } from '../connection.js';
 import { emails } from '../schema.js';
 import { logger } from '../../utils/logger.js';
@@ -102,9 +102,8 @@ export class EmailRepository {
       const existingEmails = await db
         .select({ gmailMessageId: emails.gmailMessageId })
         .from(emails)
-        .where(eq(emails.gmailMessageId, gmailMessageIds[0])); // This is a simplified query
+        .where(inArray(emails.gmailMessageId, gmailMessageIds));
 
-      // For production, you'd want to use an IN clause, but drizzle requires specific syntax
       return new Set(existingEmails.map((e) => e.gmailMessageId));
     } catch (error) {
       logger.error('Failed to find existing message IDs', { error });
