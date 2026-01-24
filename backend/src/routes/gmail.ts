@@ -375,8 +375,109 @@ app.post('/emails/discover', async (c) => {
 });
 
 /**
+ * POST /api/gmail/senders/fetch
+ * Fetch unique senders directly from Gmail (paginated)
+ * Use this to discover senders without storing all emails
+ *
+ * Body params:
+ * - maxMessages: number (default 500, max 500) - messages to scan per page
+ * - pageToken: string (optional) - for pagination
+ * - saveToDb: boolean (default true) - whether to save senders to database
+ */
+app.post('/senders/fetch', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: true, message: 'Unauthorized' }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const maxMessages = Math.min(body.maxMessages || 500, 500);
+    const pageToken = body.pageToken as string | undefined;
+    const saveToDb = body.saveToDb !== false; // default true
+
+    // Get tokens
+    const tokens = await GmailOAuthTokenRepository.findByUserId(user.id);
+    if (!tokens) {
+      return c.json({
+        error: true,
+        message: 'Gmail not connected. Please authorize first.',
+      }, 400);
+    }
+
+    // Get valid access token
+    let accessToken = GmailOAuthService.decryptTokens(tokens.accessToken, tokens.refreshToken).accessToken;
+
+    if (new Date() >= tokens.expiresAt) {
+      const refreshToken = GmailOAuthService.decryptTokens(tokens.accessToken, tokens.refreshToken).refreshToken;
+      const refreshed = await GmailOAuthService.refreshAccessToken(refreshToken);
+
+      const { encryptedAccessToken } = GmailOAuthService.encryptTokens({
+        accessToken: refreshed.accessToken,
+        refreshToken,
+        expiresAt: refreshed.expiresAt,
+        scope: tokens.scope,
+      });
+      await GmailOAuthTokenRepository.upsert(
+        user.id,
+        encryptedAccessToken,
+        tokens.refreshToken,
+        refreshed.expiresAt,
+        tokens.scope
+      );
+
+      accessToken = refreshed.accessToken;
+    }
+
+    // Fetch senders from Gmail
+    const result = await GmailEmailService.fetchSendersPaginated(accessToken, maxMessages, pageToken);
+
+    // Optionally save to database
+    if (saveToDb) {
+      for (const sender of result.senders) {
+        await EmailSenderRepository.upsert(
+          user.id,
+          sender.email,
+          sender.name || null,
+          sender.count,
+          null, // firstEmailDate - not tracked in quick fetch
+          sender.latestDate || null
+        );
+      }
+      logger.info('Saved senders to database', { count: result.senders.length });
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        senders: result.senders,
+        messagesProcessed: result.messagesProcessed,
+        uniqueSendersFound: result.senders.length,
+        nextPageToken: result.nextPageToken,
+        hasMore: result.hasMore,
+        savedToDb: saveToDb,
+      },
+      message: `Found ${result.senders.length} unique senders from ${result.messagesProcessed} messages`,
+    });
+  } catch (error: any) {
+    logger.error('Failed to fetch senders from Gmail', { error });
+    return c.json({
+      error: true,
+      message: error.message || 'Failed to fetch senders',
+    }, 500);
+  }
+});
+
+/**
  * GET /api/gmail/senders
- * Get all email senders grouped by sender
+ * Get all email senders from database with sorting, filtering, and pagination
+ *
+ * Query params:
+ * - limit: number (default 100)
+ * - offset: number (default 0)
+ * - sortBy: 'emailCount' | 'lastEmailDate' | 'firstEmailDate' | 'senderEmail' | 'senderName'
+ * - sortOrder: 'asc' | 'desc' (default 'desc')
+ * - search: string (searches email and name)
  */
 app.get('/senders', async (c) => {
   try {
@@ -387,18 +488,39 @@ app.get('/senders', async (c) => {
 
     const limit = parseInt(c.req.query('limit') || '100');
     const offset = parseInt(c.req.query('offset') || '0');
+    const sortBy = (c.req.query('sortBy') || 'emailCount') as 'emailCount' | 'lastEmailDate' | 'firstEmailDate' | 'senderEmail' | 'senderName';
+    const sortOrder = (c.req.query('sortOrder') || 'desc') as 'asc' | 'desc';
+    const search = c.req.query('search') || undefined;
 
-    const senders = await EmailSenderRepository.findAllByUser(user.id, limit, offset);
-    const totalCount = await EmailSenderRepository.countByUser(user.id);
+    const senders = await EmailSenderRepository.findAllByUser(user.id, {
+      limit,
+      offset,
+      sortBy,
+      sortOrder,
+      ...(search && { search }),
+    });
+    const totalCount = await EmailSenderRepository.countByUser(user.id, search);
+    const stats = await EmailSenderRepository.getStats(user.id);
 
     return c.json({
       success: true,
       data: {
         senders,
-        total: totalCount,
-        limit,
-        offset,
-        hasMore: totalCount > offset + limit,
+        pagination: {
+          total: totalCount,
+          limit,
+          offset,
+          hasMore: totalCount > offset + limit,
+        },
+        stats: {
+          totalSenders: stats.totalSenders,
+          totalEmails: stats.totalEmails,
+        },
+        filters: {
+          sortBy,
+          sortOrder,
+          search: search || null,
+        },
       },
     });
   } catch (error: any) {

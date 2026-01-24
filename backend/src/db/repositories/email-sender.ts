@@ -4,10 +4,21 @@
  * Database operations for email senders
  */
 
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, asc, ilike, or, count, sum } from 'drizzle-orm';
 import { db } from '../connection.js';
 import { emailSenders } from '../schema.js';
 import { logger } from '../../utils/logger.js';
+
+export type SortField = 'emailCount' | 'lastEmailDate' | 'firstEmailDate' | 'senderEmail' | 'senderName';
+export type SortOrder = 'asc' | 'desc';
+
+export interface FindAllOptions {
+  limit?: number;
+  offset?: number;
+  sortBy?: SortField;
+  sortOrder?: SortOrder;
+  search?: string;
+}
 
 export class EmailSenderRepository {
   /**
@@ -79,15 +90,46 @@ export class EmailSenderRepository {
   }
 
   /**
-   * Get all senders for a user
+   * Get all senders for a user with sorting and filtering
    */
-  static async findAllByUser(userId: number, limit = 100, offset = 0) {
+  static async findAllByUser(userId: number, options: FindAllOptions = {}) {
+    const {
+      limit = 100,
+      offset = 0,
+      sortBy = 'emailCount',
+      sortOrder = 'desc',
+      search,
+    } = options;
+
     try {
+      // Build where conditions
+      const conditions = [eq(emailSenders.userId, userId)];
+
+      if (search) {
+        conditions.push(
+          or(
+            ilike(emailSenders.senderEmail, `%${search}%`),
+            ilike(emailSenders.senderName, `%${search}%`)
+          )!
+        );
+      }
+
+      // Build order by
+      const sortColumn = {
+        emailCount: emailSenders.emailCount,
+        lastEmailDate: emailSenders.lastEmailDate,
+        firstEmailDate: emailSenders.firstEmailDate,
+        senderEmail: emailSenders.senderEmail,
+        senderName: emailSenders.senderName,
+      }[sortBy];
+
+      const orderFn = sortOrder === 'asc' ? asc : desc;
+
       const senders = await db
         .select()
         .from(emailSenders)
-        .where(eq(emailSenders.userId, userId))
-        .orderBy(desc(emailSenders.emailCount))
+        .where(and(...conditions))
+        .orderBy(orderFn(sortColumn))
         .limit(limit)
         .offset(offset);
 
@@ -142,18 +184,52 @@ export class EmailSenderRepository {
   }
 
   /**
-   * Get total count of senders for a user
+   * Get total count of senders for a user (with optional search)
    */
-  static async countByUser(userId: number): Promise<number> {
+  static async countByUser(userId: number, search?: string): Promise<number> {
     try {
-      const senders = await db
-        .select()
+      const conditions = [eq(emailSenders.userId, userId)];
+
+      if (search) {
+        conditions.push(
+          or(
+            ilike(emailSenders.senderEmail, `%${search}%`),
+            ilike(emailSenders.senderName, `%${search}%`)
+          )!
+        );
+      }
+
+      const [result] = await db
+        .select({ count: count() })
+        .from(emailSenders)
+        .where(and(...conditions));
+
+      return result?.count || 0;
+    } catch (error) {
+      logger.error('Failed to count senders', { userId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Get aggregated stats for all senders of a user
+   */
+  static async getStats(userId: number) {
+    try {
+      const [result] = await db
+        .select({
+          totalSenders: count(),
+          totalEmails: sum(emailSenders.emailCount),
+        })
         .from(emailSenders)
         .where(eq(emailSenders.userId, userId));
 
-      return senders.length;
+      return {
+        totalSenders: result?.totalSenders || 0,
+        totalEmails: Number(result?.totalEmails) || 0,
+      };
     } catch (error) {
-      logger.error('Failed to count senders', { userId, error });
+      logger.error('Failed to get sender stats', { userId, error });
       throw error;
     }
   }

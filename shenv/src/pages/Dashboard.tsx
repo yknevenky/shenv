@@ -95,6 +95,12 @@ export function Dashboard() {
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-semibold text-gray-900">Shenv - Google Sheets Governance</h1>
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate('/gmail')}
+              className="text-sm font-medium text-blue-600 hover:text-blue-700 mr-4"
+            >
+              Gmail Manager
+            </button>
             <span className="text-sm text-gray-600">{user.email}</span>
             <button
               onClick={handleLogout}

@@ -58,6 +58,20 @@ export interface PaginatedEmailResult {
   fetchedCount: number;
 }
 
+export interface SenderInfo {
+  email: string;
+  name: string | undefined;
+  count: number;
+  latestDate: Date | undefined;
+}
+
+export interface FetchSendersResult {
+  senders: SenderInfo[];
+  nextPageToken: string | undefined;
+  messagesProcessed: number;
+  hasMore: boolean;
+}
+
 export class GmailEmailService {
   /**
    * Get comprehensive email stats by fetching all labels and their stats
@@ -142,6 +156,105 @@ export class GmailEmailService {
     } catch (error) {
       logger.error('Failed to get inbox stats', { error });
       throw new Error(`Failed to get inbox stats: ${error}`);
+    }
+  }
+
+  /**
+   * Fetch unique senders from Gmail with pagination
+   * This is more efficient than fetching full emails - only gets From header
+   */
+  static async fetchSendersPaginated(
+    accessToken: string,
+    maxMessages: number = 500,
+    pageToken?: string,
+    existingSenders?: Map<string, SenderInfo>
+  ): Promise<FetchSendersResult> {
+    try {
+      logger.info('Fetching senders from Gmail', { maxMessages, hasPageToken: !!pageToken });
+
+      const gmail = GmailOAuthService.getGmailClient(accessToken);
+      const senderMap = existingSenders || new Map<string, SenderInfo>();
+
+      // Cap at 500 per request (Gmail limit)
+      const cappedMax = Math.min(maxMessages, 500);
+
+      const listParams: any = {
+        userId: 'me',
+        maxResults: cappedMax,
+        q: 'in:inbox',
+      };
+
+      if (pageToken) {
+        listParams.pageToken = pageToken;
+      }
+
+      const response = await gmail.users.messages.list(listParams);
+      const messages = response.data.messages || [];
+      let processedCount = 0;
+
+      // Fetch only From header for each message (minimal data)
+      for (const message of messages) {
+        if (!message.id) continue;
+
+        try {
+          const msgResponse = await gmail.users.messages.get({
+            userId: 'me',
+            id: message.id,
+            format: 'metadata',
+            metadataHeaders: ['From', 'Date'],
+          });
+
+          const headers = msgResponse.data.payload?.headers || [];
+          const fromHeader = headers.find((h: any) => h.name.toLowerCase() === 'from')?.value || '';
+          const dateHeader = headers.find((h: any) => h.name.toLowerCase() === 'date')?.value;
+
+          const { email, name } = this.parseEmailAddress(fromHeader);
+
+          if (email) {
+            const existing = senderMap.get(email);
+            const msgDate = dateHeader ? new Date(dateHeader) : undefined;
+
+            if (existing) {
+              existing.count++;
+              if (msgDate && (!existing.latestDate || msgDate > existing.latestDate)) {
+                existing.latestDate = msgDate;
+              }
+              // Update name if we didn't have one
+              if (!existing.name && name) {
+                existing.name = name;
+              }
+            } else {
+              senderMap.set(email, {
+                email,
+                name,
+                count: 1,
+                latestDate: msgDate,
+              });
+            }
+          }
+
+          processedCount++;
+        } catch (error) {
+          logger.warn(`Failed to fetch message ${message.id} for sender extraction`, { error });
+        }
+      }
+
+      // Convert map to sorted array (by count descending)
+      const senders = Array.from(senderMap.values()).sort((a, b) => b.count - a.count);
+
+      logger.info(`Processed ${processedCount} messages, found ${senders.length} unique senders`, {
+        hasMore: !!response.data.nextPageToken,
+      });
+
+      return {
+        senders,
+        nextPageToken: response.data.nextPageToken || undefined,
+        messagesProcessed: processedCount,
+        hasMore: !!response.data.nextPageToken,
+      };
+    } catch (error) {
+      logger.error('Failed to fetch senders from Gmail', { error });
+      throw new Error(`Failed to fetch senders: ${error}`);
     }
   }
 
