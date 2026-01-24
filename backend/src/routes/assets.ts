@@ -11,6 +11,7 @@ import { AssetRepository } from '../db/repositories/asset.js';
 import { logger } from '../utils/logger.js';
 import { Platform } from '../types/index.js';
 import { jwtMiddleware, attachUser, type AuthVariables } from '../middleware/auth.js';
+import { validatePlatform } from '../middleware/platform-validator.js';
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -35,6 +36,16 @@ app.post('/discover', async (c) => {
       return c.json({
         error: true,
         message: 'Missing required query parameter: platform',
+      }, 400);
+    }
+
+    // Validate platform
+    const platformValidation = validatePlatform(platform);
+    if (!platformValidation.isValid || !platformValidation.isSupported) {
+      return c.json({
+        error: true,
+        message: platformValidation.message || platformValidation.error,
+        supportedPlatforms: platformValidation.supportedPlatforms,
       }, 400);
     }
 
@@ -116,6 +127,16 @@ app.post('/workspace/discover', async (c) => {
       return c.json({
         error: true,
         message: 'Missing required query parameter: platform',
+      }, 400);
+    }
+
+    // Validate platform
+    const platformValidation = validatePlatform(platform);
+    if (!platformValidation.isValid || !platformValidation.isSupported) {
+      return c.json({
+        error: true,
+        message: platformValidation.message || platformValidation.error,
+        supportedPlatforms: platformValidation.supportedPlatforms,
       }, 400);
     }
 

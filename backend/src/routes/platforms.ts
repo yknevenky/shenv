@@ -9,6 +9,7 @@ import { CredentialService } from '../services/credential-service.js';
 import { logger } from '../utils/logger.js';
 import { Platform, CredentialType } from '../types/index.js';
 import { jwtMiddleware, attachUser, type AuthVariables } from '../middleware/auth.js';
+import { validatePlatform, getAllPlatformsWithStatus } from '../middleware/platform-validator.js';
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -37,12 +38,13 @@ app.post('/credentials', async (c) => {
       }, 400);
     }
 
-    // Validate platform
-    const validPlatforms: Platform[] = ['google_workspace', 'microsoft_365', 'zoho', 'dropbox', 'box', 'other'];
-    if (!validPlatforms.includes(platform)) {
+    // Validate platform using centralized validator
+    const platformValidation = validatePlatform(platform);
+    if (!platformValidation.isValid || !platformValidation.isSupported) {
       return c.json({
         error: true,
-        message: `Invalid platform. Must be one of: ${validPlatforms.join(', ')}`,
+        message: platformValidation.message || platformValidation.error,
+        supportedPlatforms: platformValidation.supportedPlatforms,
       }, 400);
     }
 
@@ -171,17 +173,18 @@ app.delete('/credentials/:platform', async (c) => {
 
 /**
  * GET /api/platforms/supported
- * Get list of supported platforms
+ * Get list of supported platforms with their status
  */
 app.get('/supported', async (c) => {
   try {
-    const platforms = CredentialService.getSupportedPlatforms();
+    const platformsWithStatus = getAllPlatformsWithStatus();
 
     return c.json({
       success: true,
       data: {
-        platforms,
-        count: platforms.length,
+        platforms: platformsWithStatus,
+        count: platformsWithStatus.length,
+        supportedCount: platformsWithStatus.filter(p => p.isSupported).length,
       },
     });
   } catch (error) {

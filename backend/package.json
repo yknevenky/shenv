@@ -8,8 +8,10 @@
     "start": "tsx src/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:push": "drizzle-kit push --force",
+    "db:studio": "drizzle-kit studio",
+    "db:reset": "docker exec shenv-postgres psql -U postgres -c 'DROP DATABASE IF EXISTS shenv;' && docker exec shenv-postgres psql -U postgres -c 'CREATE DATABASE shenv;' && npm run db:push",
+    "db:reset-all": "docker compose down -v && docker compose up -d && sleep 3 && npm run db:push"
   },
   "keywords": [],
   "author": "",

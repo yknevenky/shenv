@@ -7,6 +7,7 @@ import { authRouter } from "./routes/auth.js";
 import { governanceRouter } from "./routes/governance.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { reportsRouter } from "./routes/reports.js";
+import gmailRouter from "./routes/gmail.js";
 import { connectToDatabase } from "./db/connection.js";
 import { logger } from "./utils/logger.js";
 import type { HealthResponse, ErrorResponse } from "./types/index.js";
@@ -52,6 +53,9 @@ app.route("/api/assets", assetsRouter);
 app.route("/governance", governanceRouter);
 app.route("/approvals", approvalsRouter);
 app.route("/reports", reportsRouter);
+
+// Gmail email management routes
+app.route("/api/gmail", gmailRouter);
 
 // 404 handler
 app.notFound((c) => {

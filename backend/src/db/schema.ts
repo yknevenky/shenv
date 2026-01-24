@@ -150,14 +150,60 @@ export const monthlyReports = pgTable('monthly_reports', {
   generatedAt: timestamp('generated_at').defaultNow().notNull(),
 });
 
+// ==================== GMAIL OAUTH TOKENS TABLE ====================
+// Stores OAuth 2.0 tokens for Gmail access
+export const gmailOAuthTokens = pgTable('gmail_oauth_tokens', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  accessToken: text('access_token').notNull(), // Encrypted
+  refreshToken: text('refresh_token').notNull(), // Encrypted
+  expiresAt: timestamp('expires_at').notNull(),
+  scope: text('scope').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ==================== EMAIL SENDERS TABLE ====================
+// Groups emails by sender for bulk operations
+export const emailSenders = pgTable('email_senders', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  senderEmail: text('sender_email').notNull(),
+  senderName: text('sender_name'),
+  emailCount: integer('email_count').default(0).notNull(),
+  firstEmailDate: timestamp('first_email_date'),
+  lastEmailDate: timestamp('last_email_date'),
+  lastSyncedAt: timestamp('last_synced_at').defaultNow().notNull(),
+});
+
+// ==================== EMAILS TABLE ====================
+// Stores individual email metadata
+export const emails = pgTable('emails', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  senderId: integer('sender_id').notNull().references(() => emailSenders.id, { onDelete: 'cascade' }),
+  gmailMessageId: text('gmail_message_id').notNull().unique(), // Gmail's message ID
+  threadId: text('thread_id').notNull(),
+  subject: text('subject'),
+  snippet: text('snippet'), // Email preview
+  receivedAt: timestamp('received_at').notNull(),
+  isRead: boolean('is_read').default(false),
+  hasAttachment: boolean('has_attachment').default(false),
+  labels: jsonb('labels'), // Gmail labels
+  fetchedAt: timestamp('fetched_at').defaultNow().notNull(),
+});
+
 // ==================== RELATIONS ====================
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ many, one }) => ({
   assets: many(assets),
   platformCredentials: many(platformCredentials),
   workspaceUsers: many(workspaceUsers),
   governanceActions: many(governanceActions),
   auditLogs: many(auditLogs),
   monthlyReports: many(monthlyReports),
+  gmailOAuthToken: one(gmailOAuthTokens),
+  emailSenders: many(emailSenders),
+  emails: many(emails),
 }));
 
 export const platformCredentialsRelations = relations(platformCredentials, ({ one }) => ({
@@ -220,5 +266,31 @@ export const workspaceUsersRelations = relations(workspaceUsers, ({ one }) => ({
   user: one(users, {
     fields: [workspaceUsers.userId],
     references: [users.id],
+  }),
+}));
+
+export const gmailOAuthTokensRelations = relations(gmailOAuthTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [gmailOAuthTokens.userId],
+    references: [users.id],
+  }),
+}));
+
+export const emailSendersRelations = relations(emailSenders, ({ one, many }) => ({
+  user: one(users, {
+    fields: [emailSenders.userId],
+    references: [users.id],
+  }),
+  emails: many(emails),
+}));
+
+export const emailsRelations = relations(emails, ({ one }) => ({
+  user: one(users, {
+    fields: [emails.userId],
+    references: [users.id],
+  }),
+  sender: one(emailSenders, {
+    fields: [emails.senderId],
+    references: [emailSenders.id],
   }),
 }));
