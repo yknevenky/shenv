@@ -7,6 +7,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Dashboard } from './pages/Dashboard';
 import { SheetDetails } from './pages/SheetDetails';
 import { GmailDashboard } from './pages/GmailDashboard';
+import { GmailAuthSuccess } from './pages/GmailAuthSuccess';
+import { GmailAuthError } from './pages/GmailAuthError';
 import Signin from './pages/Signin';
 import Signup from './pages/Signup';
 
@@ -56,6 +58,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <SheetDetails />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/gmail/auth-success"
+            element={
+              <ProtectedRoute>
+                <GmailAuthSuccess />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/gmail/auth-error"
+            element={
+              <ProtectedRoute>
+                <GmailAuthError />
               </ProtectedRoute>
             }
           />

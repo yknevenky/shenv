@@ -1,30 +1,26 @@
-# Shenv - Google Sheets Governance Platform
+# Shenv - Google Sheets & Gmail Governance Platform
 
-A minimal B2B SaaS tool for monitoring and governing Google Sheets access across your organization. Built with React, TypeScript, and Hono.js.
+A minimal B2B SaaS tool for monitoring and governing Google Sheets and Gmail access across your organization. Built with React, TypeScript, and Hono.js.
 
 ## Problem Statement
 
 Organizations often lack visibility into:
-- Who has access to which Google Sheets
-- What permission levels users have across sheets
-- When access was granted or modified
-- Overall sheets access patterns
+- Who has access to which Google Sheets and what permission levels they have.
+- Overall sheets access patterns and historical grant/modification data.
+- **Gmail overhead**: High volume of senders and messages cluttering institutional inboxes without easy bulk management or insight.
 
 ## Solution
 
-Shenv uses Google Service Accounts with Domain-Wide Delegation to:
-- Discover all Google Sheets in your organization
-- List sheets with permission details
-- Show who has access to each sheet
-- Provide search and filtering capabilities
-- Enable basic access auditing
+Shenv provides a unified dashboard to:
+- **Google Sheets**: Discover all sheets in your organization, list permission details, and provide search/filtering for auditing using Domain-Wide Delegation.
+- **Gmail Management**: Discover, scan, and manage organization email volume. Identity high-volume senders, perform bulk deletions with safety checks, and monitor data freshness.
 
 ## Tech Stack
 
 ### Backend
 - **Hono.js** - Lightweight web framework
 - **TypeScript** - Type-safe development
-- **Google APIs** - Sheets API, Drive API
+- **Google APIs** - Sheets API, Drive API, Gmail API
 - **Node.js** - Runtime environment
 
 ### Frontend
@@ -63,6 +59,8 @@ Shenv/
 │   └── package.json
 │
 ├── CLAUDE.MD           # AI assistant instructions
+├── LAST COMMIT.md      # Summary of the most recent changes
+├── RECENT CHANGES.md   # Historical log of recent feature additions
 └── README.md           # This file
 ```
 
@@ -75,6 +73,7 @@ Before you begin, ensure you have:
 3. **Google Cloud Project** with:
    - Google Sheets API enabled
    - Google Drive API enabled
+   - **Gmail API enabled**
    - Service Account created
    - Domain-Wide Delegation configured
 
@@ -92,6 +91,7 @@ Before you begin, ensure you have:
 2. Search for and enable:
    - **Google Sheets API**
    - **Google Drive API**
+   - **Gmail API**
 
 ### 3. Create a Service Account
 
@@ -128,7 +128,10 @@ Before you begin, ensure you have:
 4. Enter the **Client ID** from step 5
 5. Add the following OAuth scopes (comma-separated):
    ```
-   https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/spreadsheets.readonly
+   https://www.googleapis.com/auth/drive.readonly,
+   https://www.googleapis.com/auth/spreadsheets.readonly,
+   https://www.googleapis.com/auth/gmail.readonly,
+   https://www.googleapis.com/auth/gmail.modify
    ```
 6. Click **Authorize**
 
@@ -225,7 +228,7 @@ Frontend will start on [http://localhost:5173](http://localhost:5173)
 
 1. Open [http://localhost:5173](http://localhost:5173) in your browser
 2. You should see the Shenv dashboard
-3. If configured correctly, sheets will load automatically
+3. If configured correctly, sheets and Gmail stats will load automatically
 
 ### Health Check
 
@@ -246,136 +249,72 @@ Expected response:
 
 ## API Endpoints
 
-### Backend API
-
-- `GET /health` - Health check endpoint
+### Sheets API
 - `GET /api/sheets` - List all sheets
   - Query params: `page`, `limit`, `search`, `sortBy`, `sortOrder`
 - `GET /api/sheets/:id` - Get sheet details with permissions
 
-## Features (V1)
+### Gmail API
+- `GET /api/gmail/inbox/stats` - Overall inbox statistics (total messages, unread, labels)
+- `POST /api/gmail/emails/discover` - Perform email discovery/scanning
+- `POST /api/gmail/senders/fetch` - Fetch high-volume senders
+- `GET /api/gmail/senders` - List analyzed senders with pagination/search/sort
+- `DELETE /api/gmail/senders/:id` - Delete messages from a specific sender
+- `POST /api/gmail/senders/bulk-delete` - Bulk delete messages from multiple senders
 
+## Features
+
+### Google Sheets
 - ✅ List all Google Sheets in the organization
 - ✅ View sheet metadata (owner, last modified, permission count)
 - ✅ Search sheets by name
 - ✅ View detailed permissions for each sheet
 - ✅ Pagination for large datasets
-- ✅ Clean, modern B2B SaaS UI
-- ✅ Responsive design
 
-## Limitations (V1)
+### Gmail Management
+- ✅ **Discovery Wizard**: 3-phase scan (Mode Select → Scanning → Results) with Quick/Deep scan modes.
+- ✅ **Inbox Overview**: Live statistics for Total Messages, Unread, Threads, Spam, and Unique Senders.
+- ✅ **Sender Workbench**: Searchable, sortable, and filterable list of senders with volume analysis.
+- ✅ **Bulk Cleanup**: Type-to-confirm "DELETE" safeguards for bulk message removal.
+- ✅ **Activity Log**: Persistent log of scanned and deleted actions.
+- ✅ **Data Freshness**: Status indicators for last sync time.
+- ✅ **Focus Mode**: UI toggle to concentrate on the sender workbench.
 
-- **Read-only**: Cannot modify permissions
-- **No authentication**: Uses service account only
-- **No database**: Fetches from Google APIs on demand
-- **No caching**: Every request hits Google APIs
-- **No history tracking**: Only current state
+### General
+- ✅ Clean, modern B2B SaaS UI with TailwindCSS.
+- ✅ Improved auth error handling with field-level validation.
+- ✅ Optimized CORS configuration for preflight requests.
+
+## Limitations
+
+- **No authentication**: Currently focused on organization-wide management.
+- **No database**: Fetches from Google APIs on demand (with some localStorage caching for logs).
+- **No history tracking**: Minimal audit trail via Activity Log.
 
 ## Future Enhancements
 
-- User authentication
-- Permission change tracking
-- Alerts for unusual access patterns
-- Bulk permission reports
-- Advanced filtering and sorting
-- Sheet categorization
-- Access request workflow
-- Slack/email notifications
-- Database layer for caching
-- Permission modification capabilities
+- Full user authentication & RBAC
+- Advanced permission change tracking
+- Slack/email notifications for unusual patterns
+- Database layer for high-performance caching
+- Automated periodic scans and reports
 
 ## Troubleshooting
 
-### Backend fails to start
-
-**Error:** `Failed to load service account credentials`
-
-**Solution:**
-- Verify `GOOGLE_SERVICE_ACCOUNT_PATH` points to your JSON file
-- Ensure the JSON file is valid
-- Check file permissions
-
-### No sheets appear
-
-**Error:** Sheets list is empty
-
-**Possible causes:**
-1. **Domain-Wide Delegation not configured**
-   - Verify step 6 in Google Cloud Setup
-   - Ensure correct Client ID and scopes
-
-2. **Wrong admin email**
-   - Update `GOOGLE_ADMIN_EMAIL` in `.env`
-   - Must be a super admin in your workspace
-
-3. **API not enabled**
-   - Verify Google Sheets API and Drive API are enabled
-   - Check in Google Cloud Console
-
-4. **Service account permissions**
-   - Ensure the service account has domain-wide delegation
-   - Verify the OAuth scopes are correct
-
 ### CORS errors
+**Error:** Browser sends OPTIONS preflight but actual request is blocked.
+**Solution:** Backend now explicitly sets `allowHeaders: ["Content-Type", "Authorization"]`. Ensure your `FRONTEND_URL` in `.env` is correct.
 
-**Error:** CORS policy blocking requests
-
-**Solution:**
-- Verify `FRONTEND_URL` in backend `.env` matches your frontend URL
-- Default is `http://localhost:5173`
-- Restart backend after changing `.env`
+### Auth Error Redirect Swallowing
+**Error:** Signin/Signup errors redirect immediately to `/signin`.
+**Solution:** The Axios interceptor now skips redirects for `/auth/signin` and `/auth/signup` to allow field-level error display.
 
 ## Security Notes
 
-- **Never commit** `.env` files or `credentials/` folder
-- Service account JSON contains sensitive keys
-- Store credentials securely
-- Use environment variables for production
-- Implement rate limiting for production use
-- Consider using Google Secret Manager in production
-
-## Development
-
-### Type Checking
-
-Backend:
-```bash
-cd backend
-npm run lint
-```
-
-Frontend:
-```bash
-cd shenv
-npm run build
-```
-
-### Building for Production
-
-Backend:
-```bash
-cd backend
-npm run build
-```
-
-Frontend:
-```bash
-cd shenv
-npm run build
-```
+- **Never commit** `.env` files or `credentials/` folder.
+- Service account JSON contains sensitive keys; store it securely.
+- Domain-wide delegation is powerful—restrict scopes to readonly where possible unless cleanup features are needed.
 
 ## License
 
 ISC
-
-## Support
-
-For issues or questions:
-1. Check [CLAUDE.MD](./CLAUDE.MD) for detailed architecture
-2. Review Google Cloud setup steps
-3. Verify environment variables
-4. Check backend logs for errors
-
----
-
-Built with focus on functionality and clean code structure.

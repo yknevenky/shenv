@@ -1,75 +1,68 @@
-# React + TypeScript + Vite
+# Shenv Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The React frontend for the Shenv Google Sheets & Gmail Governance Platform.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Dashboard**: Unified view of Google Sheets and Gmail statistics.
+- **Gmail Management**:
+  - Discovery Wizard for scanning inboxes.
+  - Sender Workbench with advanced sorting/filtering.
+  - Bulk deletion of messages from identified senders.
+  - Activity logging and data freshness indicators.
+- **Google Sheets**:
+  - Organization-wide sheet discovery.
+  - Permission auditing and metadata viewing.
+- **Authentication**: Signin/Signup with improved field-level validation and error reporting.
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+- **React 19**
+- **TypeScript**
+- **Vite**
+- **TailwindCSS**
+- **React Query** (Server state management)
+- **Axios** (HTTP client with auth interceptors)
 
-Note: This will impact Vite dev & build performances.
+## Getting Started
 
-## Expanding the ESLint configuration
+### Prerequisites
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- Node.js v18+
+- npm
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### Installation
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Development
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+npm run dev
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+The app will start on [http://localhost:5173](http://localhost:5173).
+
+### Environment Variables
+
+Create a `.env` file based on `.env.example`:
+
+```env
+VITE_API_URL=http://localhost:3000
+```
+
+## Structure
+
+- `src/components/`: Reusable UI components (Gmail, UI primitives).
+- `src/pages/`: Page-level components.
+- `src/services/`: API client services (Gmail, Auth).
+- `src/hooks/`: Custom React hooks.
+- `src/types/`: TypeScript definitions.
+
+## Build
+
+```bash
+npm run build
 ```

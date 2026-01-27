@@ -1,29 +1,52 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, ArrowLeft, LogOut } from 'lucide-react';
+import { RefreshCw, ArrowLeft, LogOut, Eye, EyeOff, X } from 'lucide-react';
 import { gmailApi } from '../services/gmail';
-import type { GmailSender, GmailEmail } from '../services/gmail';
+import type { GmailSender, GmailEmail, InboxStats } from '../services/gmail';
 import { ConnectGmail } from '../components/gmail/ConnectGmail';
-import { StatsOverview } from '../components/gmail/StatsOverview';
+import { InboxOverview } from '../components/gmail/InboxOverview';
+import { DataFreshness } from '../components/gmail/DataFreshness';
+import { CleanupSuggestions } from '../components/gmail/CleanupSuggestions';
 import { SenderList } from '../components/gmail/SenderList';
 import { EmailViewer } from '../components/gmail/EmailViewer';
+import { LabelsBreakdown } from '../components/gmail/LabelsBreakdown';
+import { ActivityLog, addActivity } from '../components/gmail/ActivityLog';
+import { DiscoveryWizard } from '../components/gmail/DiscoveryWizard';
+import { ConfirmDialog } from '../components/gmail/ConfirmDialog';
+import { DangerConfirmDialog } from '../components/gmail/DangerConfirmDialog';
+import { DeleteResults } from '../components/gmail/DeleteResults';
 
 export function GmailDashboard() {
     const navigate = useNavigate();
+
+    // Connection state
     const [initLoading, setInitLoading] = useState(true);
     const [isConnected, setIsConnected] = useState(false);
-    const [refreshing, setRefreshing] = useState(false);
 
-    // Stats
-    const [stats, setStats] = useState({ totalEmails: 0, uniqueSenders: 0 });
+    // Inbox stats
+    const [inboxStats, setInboxStats] = useState<InboxStats | null>(null);
+    const [statsLoading, setStatsLoading] = useState(false);
 
     // Senders list
     const [senders, setSenders] = useState<GmailSender[]>([]);
     const [sendersLoading, setSendersLoading] = useState(false);
     const [sendersPage, setSendersPage] = useState(0);
     const [hasMoreSenders, setHasMoreSenders] = useState(true);
+    const [senderStats, setSenderStats] = useState<{ totalSenders: number; totalEmails: number } | null>(null);
 
-    // Email Viewer
+    // Search / Sort / Filter
+    const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [sortBy, setSortBy] = useState('emailCount');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+    // Focus mode
+    const [focusMode, setFocusMode] = useState(false);
+
+    // Discovery wizard
+    const [discoveryWizardOpen, setDiscoveryWizardOpen] = useState(false);
+
+    // Email viewer
     const [selectedSender, setSelectedSender] = useState<GmailSender | null>(null);
     const [viewerOpen, setViewerOpen] = useState(false);
     const [emails, setEmails] = useState<GmailEmail[]>([]);
@@ -31,11 +54,52 @@ export function GmailDashboard() {
     const [emailsPage, setEmailsPage] = useState(0);
     const [hasMoreEmails, setHasMoreEmails] = useState(true);
 
+    // Confirm dialogs
+    const [confirmState, setConfirmState] = useState<{
+        type: 'single_delete' | 'disconnect' | null;
+        sender?: GmailSender;
+    }>({ type: null });
+    const [confirmLoading, setConfirmLoading] = useState(false);
+
+    // Bulk delete dialog
+    const [bulkDeleteIds, setBulkDeleteIds] = useState<number[]>([]);
+    const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+    const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+
+    // Delete results
+    const [deleteResults, setDeleteResults] = useState<{ deleted: number; failed: number; errors?: string[] } | null>(null);
+    const [deleteResultsOpen, setDeleteResultsOpen] = useState(false);
+
+    // Data freshness
+    const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+
+    // Error
     const [error, setError] = useState('');
+
+    // Sync flag
+    const [refreshing, setRefreshing] = useState(false);
+
+    // Debounce search
+    const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+    useEffect(() => {
+        debounceRef.current = setTimeout(() => {
+            setDebouncedSearch(search);
+        }, 300);
+        return () => clearTimeout(debounceRef.current);
+    }, [search]);
+
+    // Reload senders when search/sort changes
+    useEffect(() => {
+        if (isConnected) {
+            loadSenders(true);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [debouncedSearch, sortBy, sortOrder]);
 
     // Initial check
     useEffect(() => {
         checkStatus();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const checkStatus = async () => {
@@ -43,7 +107,7 @@ export function GmailDashboard() {
             const { data } = await gmailApi.getStatus();
             setIsConnected(data.isConnected);
             if (data.isConnected) {
-                await loadInitialData();
+                await loadAllData();
             }
         } catch (err) {
             console.error('Failed to check status', err);
@@ -52,60 +116,108 @@ export function GmailDashboard() {
         }
     };
 
-    const loadInitialData = async () => {
-        setRefreshing(true);
+    const loadAllData = async () => {
+        await Promise.all([
+            loadInboxStats(),
+            loadSenders(true),
+        ]);
+    };
+
+    const loadInboxStats = async () => {
+        setStatsLoading(true);
         try {
-            // Reset lists
-            setSendersPage(0);
-            setHasMoreSenders(true);
-
-            const response = await gmailApi.getSenders(20, 0);
-            setSenders(response.data.senders);
-            setHasMoreSenders(response.data.hasMore);
-
-            // Calculate basic stats from first page for now (or improve backend to return totals)
-            // In a real app, backend should return stats in metadata
-            setStats({
-                totalEmails: response.data.senders.reduce((acc, s) => acc + s.emailCount, 0), // Approximation
-                uniqueSenders: response.data.total
-            });
-
+            const result = await gmailApi.getInboxStats();
+            setInboxStats(result.data);
         } catch (err) {
-            setError('Failed to load data');
+            // Stats might not be available, non-critical
+            console.error('Failed to load inbox stats', err);
         } finally {
-            setRefreshing(false);
+            setStatsLoading(false);
         }
     };
 
-    const handleDiscover = async () => {
-        setRefreshing(true);
-        setError('');
-        try {
-            await gmailApi.discover();
-            await loadInitialData();
-        } catch (err) {
-            setError('Discovery failed. Please try again.');
-        } finally {
-            setRefreshing(false);
-        }
-    };
-
-    const loadMoreSenders = async () => {
-        if (sendersLoading || !hasMoreSenders) return;
+    const loadSenders = async (reset: boolean) => {
         setSendersLoading(true);
         try {
-            const nextPage = sendersPage + 1;
-            const response = await gmailApi.getSenders(20, nextPage * 20);
-            setSenders(prev => [...prev, ...response.data.senders]);
-            setHasMoreSenders(response.data.hasMore);
-            setSendersPage(nextPage);
+            const offset = reset ? 0 : (sendersPage + 1) * 20;
+            const response = await gmailApi.getSenders(20, offset, sortBy, sortOrder, debouncedSearch || undefined);
+
+            if (reset) {
+                setSenders(response.data.senders);
+                setSendersPage(0);
+            } else {
+                setSenders(prev => [...prev, ...response.data.senders]);
+                setSendersPage(prev => prev + 1);
+            }
+            setHasMoreSenders(response.data.pagination.hasMore);
+            setSenderStats(response.data.stats);
+
+            // Track last synced from first sender's data
+            if (response.data.senders.length > 0) {
+                setLastSyncedAt(new Date(response.data.senders[0].lastSyncedAt));
+            }
         } catch (err) {
-            console.error('Failed to load more senders', err);
+            // If the new response shape fails, fallback to old shape
+            try {
+                const response = await gmailApi.getSenders(20, reset ? 0 : (sendersPage + 1) * 20);
+                const data = response.data as any;
+                const sendersList = data.senders || [];
+                if (reset) {
+                    setSenders(sendersList);
+                    setSendersPage(0);
+                } else {
+                    setSenders(prev => [...prev, ...sendersList]);
+                    setSendersPage(prev => prev + 1);
+                }
+                setHasMoreSenders(data.hasMore ?? data.pagination?.hasMore ?? false);
+                const total = data.total ?? data.pagination?.total ?? sendersList.length;
+                const totalEmails = sendersList.reduce((acc: number, s: GmailSender) => acc + s.emailCount, 0);
+                setSenderStats({ totalSenders: total, totalEmails });
+                if (sendersList.length > 0) {
+                    setLastSyncedAt(new Date(sendersList[0].lastSyncedAt));
+                }
+            } catch (err2) {
+                setError('Failed to load senders');
+            }
         } finally {
             setSendersLoading(false);
         }
     };
 
+    const handleSyncNow = async () => {
+        setRefreshing(true);
+        setError('');
+        try {
+            await gmailApi.discover();
+            await loadAllData();
+            addActivity('scan', 'Synced inbox data');
+        } catch (err) {
+            setError('Sync failed. Please try again.');
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
+    const handleRefreshSenders = async () => {
+        setRefreshing(true);
+        try {
+            await loadAllData();
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
+    // Sort/Search handlers
+    const handleSearchChange = (value: string) => {
+        setSearch(value);
+    };
+
+    const handleSortChange = (newSortBy: string, newSortOrder: 'asc' | 'desc') => {
+        setSortBy(newSortBy);
+        setSortOrder(newSortOrder);
+    };
+
+    // Email viewer
     const handleViewEmails = async (sender: GmailSender) => {
         setSelectedSender(sender);
         setViewerOpen(true);
@@ -133,49 +245,100 @@ export function GmailDashboard() {
         }
     };
 
-    const handleDeleteSender = async (sender: GmailSender) => {
-        setRefreshing(true);
+    // Single delete (via ConfirmDialog)
+    const handleDeleteSender = (sender: GmailSender) => {
+        setConfirmState({ type: 'single_delete', sender });
+    };
+
+    const executeSingleDelete = async () => {
+        if (!confirmState.sender) return;
+        setConfirmLoading(true);
         try {
-            await gmailApi.deleteSender(sender.id);
-            setSenders(prev => prev.filter(s => s.id !== sender.id));
-            // Update stats
-            setStats(prev => ({
-                ...prev,
-                uniqueSenders: prev.uniqueSenders - 1,
-                totalEmails: prev.totalEmails - sender.emailCount
-            }));
+            const result = await gmailApi.deleteSender(confirmState.sender.id);
+            setSenders(prev => prev.filter(s => s.id !== confirmState.sender!.id));
+            setSenderStats(prev => prev ? {
+                totalSenders: prev.totalSenders - 1,
+                totalEmails: prev.totalEmails - confirmState.sender!.emailCount,
+            } : null);
+            addActivity('delete', `Deleted emails from ${confirmState.sender.senderEmail}`);
+            setConfirmState({ type: null });
+            if (result.data) {
+                setDeleteResults(result.data);
+                setDeleteResultsOpen(true);
+            }
         } catch (err) {
             setError('Failed to delete sender');
         } finally {
-            setRefreshing(false);
+            setConfirmLoading(false);
         }
     };
 
-    const handleBulkDelete = async (senderIds: number[]) => {
-        setRefreshing(true);
+    // Bulk delete (via DangerConfirmDialog)
+    const handleBulkDelete = (senderIds: number[]) => {
+        setBulkDeleteIds(senderIds);
+        setBulkDeleteOpen(true);
+    };
+
+    const executeBulkDelete = async () => {
+        setBulkDeleteLoading(true);
         try {
-            await gmailApi.bulkDeleteSenders(senderIds);
-            setSenders(prev => prev.filter(s => !senderIds.includes(s.id)));
-            // Note: updating stats accurately here is complex without refetching
-            await loadInitialData();
+            const result = await gmailApi.bulkDeleteSenders(bulkDeleteIds);
+            const deletedCount = bulkDeleteIds.length;
+            setSenders(prev => prev.filter(s => !bulkDeleteIds.includes(s.id)));
+            addActivity('bulk_delete', `Bulk deleted ${deletedCount} senders`);
+            setBulkDeleteOpen(false);
+            setBulkDeleteIds([]);
+            if (result.data) {
+                setDeleteResults(result.data);
+                setDeleteResultsOpen(true);
+            }
+            // Reload to get accurate stats
+            await loadSenders(true);
         } catch (err) {
             setError('Failed to bulk delete');
         } finally {
-            setRefreshing(false);
+            setBulkDeleteLoading(false);
         }
     };
 
-    const handleRevoke = async () => {
-        if (!confirm('Are you sure? This will delete all your email data from Shenv.')) return;
+    // Disconnect
+    const handleDisconnect = () => {
+        setConfirmState({ type: 'disconnect' });
+    };
+
+    const executeDisconnect = async () => {
+        setConfirmLoading(true);
         try {
             await gmailApi.revoke();
             setIsConnected(false);
             setSenders([]);
-            setStats({ totalEmails: 0, uniqueSenders: 0 });
+            setSenderStats(null);
+            setInboxStats(null);
+            addActivity('revoke', 'Disconnected Gmail account');
+            setConfirmState({ type: null });
         } catch (err) {
             setError('Failed to revoke access');
+        } finally {
+            setConfirmLoading(false);
         }
     };
+
+    // Discovery complete
+    const handleDiscoveryComplete = useCallback(async () => {
+        addActivity('scan', 'Completed inbox scan');
+        await loadAllData();
+    }, []);
+
+    // Cleanup suggestion delete
+    const handleSuggestionDelete = (sender: GmailSender) => {
+        handleDeleteSender(sender);
+    };
+
+    // Estimated emails for bulk
+    const bulkEstimatedEmails = bulkDeleteIds.reduce((acc, id) => {
+        const sender = senders.find(s => s.id === id);
+        return acc + (sender?.emailCount || 0);
+    }, 0);
 
     if (initLoading) {
         return (
@@ -197,22 +360,40 @@ export function GmailDashboard() {
                         >
                             <ArrowLeft className="w-5 h-5 text-gray-500" />
                         </button>
-                        <h1 className="text-xl font-semibold text-gray-900">Gmail Clean Up</h1>
+                        <h1 className="text-xl font-semibold text-gray-900">Gmail Manager</h1>
+                        {isConnected && (
+                            <span className="flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 px-2.5 py-1 rounded-full">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                                Connected
+                            </span>
+                        )}
                     </div>
 
                     {isConnected && (
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
                             <button
-                                onClick={handleDiscover}
+                                onClick={handleSyncNow}
                                 disabled={refreshing}
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50"
+                                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50"
                             >
                                 <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-                                Sync Now
+                                Sync
                             </button>
                             <button
-                                onClick={handleRevoke}
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                onClick={() => setFocusMode(!focusMode)}
+                                className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                                    focusMode
+                                        ? 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100'
+                                        : 'text-gray-600 bg-gray-100 hover:bg-gray-200'
+                                }`}
+                                title={focusMode ? 'Exit Focus Mode' : 'Focus Mode'}
+                            >
+                                {focusMode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                {focusMode ? 'Exit Focus' : 'Focus'}
+                            </button>
+                            <button
+                                onClick={handleDisconnect}
+                                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                             >
                                 <LogOut className="w-4 h-4" />
                                 Disconnect
@@ -222,33 +403,54 @@ export function GmailDashboard() {
                 </div>
             </header>
 
-            <main className="max-w-7xl mx-auto px-4 py-8">
+            <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
                 {!isConnected ? (
                     <div className="mt-12">
                         <ConnectGmail />
                     </div>
                 ) : (
                     <>
+                        {/* Error banner */}
                         {error && (
-                            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-                                {error}
+                            <div className="flex items-center justify-between p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                                <span className="text-sm">{error}</span>
+                                <button onClick={() => setError('')} className="p-1 hover:bg-red-100 rounded transition-colors">
+                                    <X className="w-4 h-4" />
+                                </button>
                             </div>
                         )}
 
-                        <StatsOverview
-                            totalEmails={stats.totalEmails}
-                            uniqueSenders={stats.uniqueSenders}
+                        {/* Data freshness */}
+                        <DataFreshness
+                            lastSyncedAt={lastSyncedAt}
+                            isLive={refreshing}
+                            onRefresh={handleRefreshSenders}
                             refreshing={refreshing}
                         />
 
-                        <div className="mt-8">
-                            <div className="flex items-center justify-between mb-4">
-                                <h2 className="text-lg font-semibold text-gray-900">Your Senders</h2>
-                                <span className="text-sm text-gray-500">
-                                    {stats.uniqueSenders} found
-                                </span>
-                            </div>
+                        {/* Inbox overview - hidden in focus mode */}
+                        {!focusMode && (
+                            <InboxOverview
+                                inboxStats={inboxStats}
+                                senderStats={senderStats}
+                                loading={statsLoading}
+                            />
+                        )}
 
+                        {/* Cleanup suggestions - hidden in focus mode */}
+                        {!focusMode && senders.length > 0 && (
+                            <CleanupSuggestions
+                                senders={senders}
+                                onReview={handleViewEmails}
+                                onDelete={handleSuggestionDelete}
+                            />
+                        )}
+
+                        {/* Sender list (main workbench) */}
+                        <div>
+                            <div className="flex items-center justify-between mb-3">
+                                <h2 className="text-lg font-semibold text-gray-900">Senders</h2>
+                            </div>
                             <SenderList
                                 senders={senders}
                                 onViewEmails={handleViewEmails}
@@ -256,14 +458,41 @@ export function GmailDashboard() {
                                 onBulkDelete={handleBulkDelete}
                                 loading={sendersLoading}
                                 hasMore={hasMoreSenders}
-                                onLoadMore={loadMoreSenders}
+                                onLoadMore={() => loadSenders(false)}
+                                search={search}
+                                onSearchChange={handleSearchChange}
+                                sortBy={sortBy}
+                                sortOrder={sortOrder}
+                                onSortChange={handleSortChange}
+                                totalCount={senderStats?.totalSenders || 0}
+                                onScanInbox={() => setDiscoveryWizardOpen(true)}
                             />
                         </div>
+
+                        {/* Labels breakdown - hidden in focus mode */}
+                        {!focusMode && inboxStats && (
+                            <LabelsBreakdown
+                                labels={[...inboxStats.systemLabels, ...inboxStats.userLabels]}
+                                loading={statsLoading}
+                            />
+                        )}
+
+                        {/* Activity log - hidden in focus mode */}
+                        {!focusMode && (
+                            <ActivityLog />
+                        )}
                     </>
                 )}
             </main>
 
-            {/* Slide-over / Modal for emails */}
+            {/* Discovery wizard modal */}
+            <DiscoveryWizard
+                isOpen={discoveryWizardOpen}
+                onClose={() => setDiscoveryWizardOpen(false)}
+                onComplete={handleDiscoveryComplete}
+            />
+
+            {/* Email viewer slide-over */}
             <EmailViewer
                 isOpen={viewerOpen}
                 onClose={() => setViewerOpen(false)}
@@ -272,6 +501,50 @@ export function GmailDashboard() {
                 loading={emailsLoading}
                 hasMore={hasMoreEmails}
                 onLoadMore={() => selectedSender && loadSenderEmails(selectedSender.id, emailsPage + 1)}
+            />
+
+            {/* Single delete confirm */}
+            <ConfirmDialog
+                isOpen={confirmState.type === 'single_delete'}
+                onClose={() => setConfirmState({ type: null })}
+                onConfirm={executeSingleDelete}
+                title="Delete Sender Emails"
+                message={`Are you sure you want to delete all ${confirmState.sender?.emailCount || 0} emails from ${confirmState.sender?.senderEmail || 'this sender'}? This cannot be undone.`}
+                confirmLabel="Delete All"
+                confirmVariant="danger"
+                loading={confirmLoading}
+            />
+
+            {/* Disconnect confirm */}
+            <ConfirmDialog
+                isOpen={confirmState.type === 'disconnect'}
+                onClose={() => setConfirmState({ type: null })}
+                onConfirm={executeDisconnect}
+                title="Disconnect Gmail"
+                message="Are you sure? This will delete all your email data from Shenv and revoke access."
+                confirmLabel="Disconnect"
+                confirmVariant="danger"
+                loading={confirmLoading}
+            />
+
+            {/* Bulk delete confirm */}
+            <DangerConfirmDialog
+                isOpen={bulkDeleteOpen}
+                onClose={() => { setBulkDeleteOpen(false); setBulkDeleteIds([]); }}
+                onConfirm={executeBulkDelete}
+                title="Bulk Delete Emails"
+                message={`This will permanently delete emails from ${bulkDeleteIds.length} senders (~${bulkEstimatedEmails.toLocaleString()} emails) from Gmail and local database.`}
+                confirmWord="DELETE"
+                itemCount={bulkEstimatedEmails}
+                itemDescription="emails"
+                loading={bulkDeleteLoading}
+            />
+
+            {/* Delete results */}
+            <DeleteResults
+                isOpen={deleteResultsOpen}
+                onClose={() => { setDeleteResultsOpen(false); setDeleteResults(null); }}
+                results={deleteResults}
             />
         </div>
     );

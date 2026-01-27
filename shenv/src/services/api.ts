@@ -28,14 +28,19 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle auth errors
+// Handle auth errors — skip redirect for auth endpoints so their
+// own error messages (e.g. "Invalid email or password") reach the UI
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/signin';
+      const url = error.config?.url || '';
+      const isAuthEndpoint = url.includes('/auth/signin') || url.includes('/auth/signup');
+      if (!isAuthEndpoint) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/signin';
+      }
     }
     return Promise.reject(error);
   }
