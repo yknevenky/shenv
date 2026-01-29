@@ -22,7 +22,7 @@ export interface FindAllOptions {
 
 export class EmailSenderRepository {
   /**
-   * Upsert email sender
+   * Upsert email sender with new metadata fields
    */
   static async upsert(
     userId: number,
@@ -30,7 +30,11 @@ export class EmailSenderRepository {
     senderName: string | null,
     emailCount: number,
     firstEmailDate: Date | null,
-    lastEmailDate: Date | null
+    lastEmailDate: Date | null,
+    attachmentCount?: number,
+    unsubscribeLink?: string | null,
+    hasUnsubscribe?: boolean,
+    isVerified?: boolean
   ) {
     try {
       const existing = await this.findBySenderEmail(userId, senderEmail);
@@ -44,6 +48,10 @@ export class EmailSenderRepository {
             emailCount,
             firstEmailDate,
             lastEmailDate,
+            ...(attachmentCount !== undefined && { attachmentCount }),
+            ...(unsubscribeLink !== undefined && { unsubscribeLink }),
+            ...(hasUnsubscribe !== undefined && { hasUnsubscribe }),
+            ...(isVerified !== undefined && { isVerified }),
             lastSyncedAt: new Date(),
           })
           .where(eq(emailSenders.id, existing.id))
@@ -61,6 +69,10 @@ export class EmailSenderRepository {
             emailCount,
             firstEmailDate,
             lastEmailDate,
+            attachmentCount: attachmentCount || 0,
+            unsubscribeLink: unsubscribeLink || null,
+            hasUnsubscribe: hasUnsubscribe || false,
+            isVerified: isVerified ?? true,
           })
           .returning();
 
@@ -68,6 +80,28 @@ export class EmailSenderRepository {
       }
     } catch (error) {
       logger.error('Failed to upsert email sender', { userId, senderEmail, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Mark sender as unsubscribed
+   */
+  static async markAsUnsubscribed(senderId: number) {
+    try {
+      const [updated] = await db
+        .update(emailSenders)
+        .set({
+          isUnsubscribed: true,
+          unsubscribedAt: new Date(),
+        })
+        .where(eq(emailSenders.id, senderId))
+        .returning();
+
+      logger.info('Marked sender as unsubscribed', { senderId });
+      return updated;
+    } catch (error) {
+      logger.error('Failed to mark sender as unsubscribed', { senderId, error });
       throw error;
     }
   }

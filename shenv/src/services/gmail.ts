@@ -13,8 +13,14 @@ export interface GmailSender {
   senderEmail: string;
   senderName: string | null;
   emailCount: number;
+  attachmentCount: number;
   firstEmailDate: string;
   lastEmailDate: string;
+  unsubscribeLink: string | null;
+  hasUnsubscribe: boolean;
+  isVerified: boolean;
+  isUnsubscribed: boolean;
+  unsubscribedAt: string | null;
   lastSyncedAt: string;
 }
 
@@ -185,6 +191,28 @@ export const gmailApi = {
 
   bulkDeleteSenders: async (senderIds: number[]): Promise<DeleteResult> => {
     const response = await apiClient.post('/api/gmail/senders/bulk-delete', { senderIds });
+    return response.data;
+  },
+
+  // Fetch all senders (entire inbox)
+  fetchAllSenders: async () => {
+    const response = await apiClient.post('/api/gmail/senders/fetch-all', {
+      saveToDb: true,
+    });
+    return response.data;
+  },
+
+  // Unsubscribe
+  unsubscribe: async (senderId: number) => {
+    const response = await apiClient.post(`/api/gmail/senders/${senderId}/unsubscribe`);
+    return response.data;
+  },
+
+  // Get unverified senders
+  getUnverifiedSenders: async (limit: number = 100, offset: number = 0) => {
+    const response = await apiClient.get<SendersListResponse>('/api/gmail/senders/unverified', {
+      params: { limit, offset },
+    });
     return response.data;
   },
 };

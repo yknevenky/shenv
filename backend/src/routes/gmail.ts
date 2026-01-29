@@ -375,6 +375,115 @@ app.post('/emails/discover', async (c) => {
 });
 
 /**
+ * POST /api/gmail/senders/fetch-all
+ * Fetch ALL unique senders from entire Gmail inbox in one request
+ * WARNING: This processes the ENTIRE inbox (35k+ emails) and may take 3-5 minutes
+ * Automatically handles pagination internally
+ *
+ * Body params:
+ * - saveToDb: boolean (default true) - whether to save senders to database
+ */
+app.post('/senders/fetch-all', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: true, message: 'Unauthorized' }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const saveToDb = body.saveToDb !== false; // default true
+
+    // Get tokens
+    const tokens = await GmailOAuthTokenRepository.findByUserId(user.id);
+    if (!tokens) {
+      return c.json({
+        error: true,
+        message: 'Gmail not connected. Please authorize first.',
+      }, 400);
+    }
+
+    // Get valid access token
+    let accessToken = GmailOAuthService.decryptTokens(tokens.accessToken, tokens.refreshToken).accessToken;
+
+    if (new Date() >= tokens.expiresAt) {
+      const refreshToken = GmailOAuthService.decryptTokens(tokens.accessToken, tokens.refreshToken).refreshToken;
+      const refreshed = await GmailOAuthService.refreshAccessToken(refreshToken);
+
+      const { encryptedAccessToken } = GmailOAuthService.encryptTokens({
+        accessToken: refreshed.accessToken,
+        refreshToken,
+        expiresAt: refreshed.expiresAt,
+        scope: tokens.scope,
+      });
+      await GmailOAuthTokenRepository.upsert(
+        user.id,
+        encryptedAccessToken,
+        tokens.refreshToken,
+        refreshed.expiresAt,
+        tokens.scope
+      );
+
+      accessToken = refreshed.accessToken;
+    }
+
+    logger.info('Starting full inbox sender fetch', { userId: user.id });
+
+    // Fetch ALL senders from entire inbox (this will loop through all pages)
+    const result = await GmailEmailService.fetchAllSenders(
+      accessToken,
+      (processed, _total, senders) => {
+        logger.info('Sender fetch progress', { userId: user.id, processed, uniqueSenders: senders });
+      }
+    );
+
+    logger.info('Full inbox sender fetch completed', {
+      userId: user.id,
+      totalProcessed: result.totalProcessed,
+      uniqueSenders: result.senders.length,
+    });
+
+    // Optionally save to database
+    if (saveToDb) {
+      logger.info('Saving all senders to database', { userId: user.id, count: result.senders.length });
+
+      for (const sender of result.senders) {
+        await EmailSenderRepository.upsert(
+          user.id,
+          sender.email,
+          sender.name || null,
+          sender.count,
+          null, // firstEmailDate - not tracked in quick fetch
+          sender.latestDate || null,
+          sender.attachmentCount,
+          sender.unsubscribeLink || null,
+          sender.hasUnsubscribe,
+          sender.isVerified
+        );
+      }
+
+      logger.info('All senders saved to database', { userId: user.id, count: result.senders.length });
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        senders: result.senders,
+        totalMessagesProcessed: result.totalProcessed,
+        uniqueSendersFound: result.senders.length,
+        savedToDb: saveToDb,
+      },
+      message: `Processed entire inbox: ${result.totalProcessed} messages, found ${result.senders.length} unique senders`,
+    });
+  } catch (error: any) {
+    logger.error('Failed to fetch all senders from Gmail', { error });
+    return c.json({
+      error: true,
+      message: error.message || 'Failed to fetch all senders',
+    }, 500);
+  }
+});
+
+/**
  * POST /api/gmail/senders/fetch
  * Fetch unique senders directly from Gmail (paginated)
  * Use this to discover senders without storing all emails
@@ -441,7 +550,11 @@ app.post('/senders/fetch', async (c) => {
           sender.name || null,
           sender.count,
           null, // firstEmailDate - not tracked in quick fetch
-          sender.latestDate || null
+          sender.latestDate || null,
+          sender.attachmentCount,
+          sender.unsubscribeLink || null,
+          sender.hasUnsubscribe,
+          sender.isVerified
         );
       }
       logger.info('Saved senders to database', { count: result.senders.length });
@@ -726,6 +839,99 @@ app.post('/senders/bulk-delete', async (c) => {
     return c.json({
       error: true,
       message: error.message || 'Failed to delete emails',
+    }, 500);
+  }
+});
+
+/**
+ * POST /api/gmail/senders/:senderId/unsubscribe
+ * Unsubscribe from a sender (opens unsubscribe link and marks as unsubscribed)
+ */
+app.post('/senders/:senderId/unsubscribe', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: true, message: 'Unauthorized' }, 401);
+    }
+
+    const senderId = parseInt(c.req.param('senderId'));
+
+    // Verify sender belongs to user
+    const sender = await EmailSenderRepository.findById(senderId);
+    if (!sender || sender.userId !== user.id) {
+      return c.json({
+        error: true,
+        message: 'Sender not found',
+      }, 404);
+    }
+
+    // Check if sender has unsubscribe capability
+    if (!sender.hasUnsubscribe || !sender.unsubscribeLink) {
+      return c.json({
+        error: true,
+        message: 'This sender does not provide an unsubscribe option',
+      }, 400);
+    }
+
+    // Mark as unsubscribed in database
+    await EmailSenderRepository.markAsUnsubscribed(senderId);
+
+    logger.info('Marked sender as unsubscribed', { userId: user.id, senderId, senderEmail: sender.senderEmail });
+
+    return c.json({
+      success: true,
+      data: {
+        unsubscribeLink: sender.unsubscribeLink,
+        message: 'Please visit the unsubscribe link to complete the process',
+      },
+      message: `Marked ${sender.senderEmail} as unsubscribed. Please visit the unsubscribe link to complete.`,
+    });
+  } catch (error: any) {
+    logger.error('Failed to unsubscribe from sender', { error });
+    return c.json({
+      error: true,
+      message: error.message || 'Failed to unsubscribe',
+    }, 500);
+  }
+});
+
+/**
+ * GET /api/gmail/senders/unverified
+ * Get all unverified senders (failed SPF/DKIM checks)
+ */
+app.get('/senders/unverified', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: true, message: 'Unauthorized' }, 401);
+    }
+
+    const limit = parseInt(c.req.query('limit') || '100');
+    const offset = parseInt(c.req.query('offset') || '0');
+
+    // Get all senders and filter for unverified
+    const allSenders = await EmailSenderRepository.findAllByUser(user.id, {
+      limit: 10000, // Get all to filter
+    });
+
+    const unverifiedSenders = allSenders.filter((s) => !s.isVerified);
+    const paginatedSenders = unverifiedSenders.slice(offset, offset + limit);
+
+    return c.json({
+      success: true,
+      data: {
+        senders: paginatedSenders,
+        total: unverifiedSenders.length,
+        limit,
+        offset,
+        hasMore: unverifiedSenders.length > offset + limit,
+      },
+    });
+  } catch (error: any) {
+    logger.error('Failed to get unverified senders', { error });
+    return c.json({
+      error: true,
+      message: 'Failed to retrieve unverified senders',
     }, 500);
   }
 });

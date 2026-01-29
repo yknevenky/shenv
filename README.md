@@ -257,8 +257,11 @@ Expected response:
 ### Gmail API
 - `GET /api/gmail/inbox/stats` - Overall inbox statistics (total messages, unread, labels)
 - `POST /api/gmail/emails/discover` - Perform email discovery/scanning
-- `POST /api/gmail/senders/fetch` - Fetch high-volume senders
-- `GET /api/gmail/senders` - List analyzed senders with pagination/search/sort
+- `POST /api/gmail/senders/fetch` - Fetch high-volume senders with metadata (paginated)
+- `POST /api/gmail/senders/fetch-all` - Fetch ALL unique senders from entire inbox (auto-paginated)
+- `GET /api/gmail/senders` - List analyzed senders with pagination/search/sort/filters
+- `GET /api/gmail/senders/unverified` - List senders with failed SPF/DKIM verification
+- `POST /api/gmail/senders/:id/unsubscribe` - Mark sender as unsubscribed and return unsubscribe link
 - `DELETE /api/gmail/senders/:id` - Delete messages from a specific sender
 - `POST /api/gmail/senders/bulk-delete` - Bulk delete messages from multiple senders
 
@@ -273,12 +276,18 @@ Expected response:
 
 ### Gmail Management
 - ✅ **Discovery Wizard**: 3-phase scan (Mode Select → Scanning → Results) with Quick/Deep scan modes.
+- ✅ **Full Inbox Discovery**: Process entire inbox (35k+ emails) with automatic pagination and rate limiting.
 - ✅ **Inbox Overview**: Live statistics for Total Messages, Unread, Threads, Spam, and Unique Senders.
 - ✅ **Sender Workbench**: Searchable, sortable, and filterable list of senders with volume analysis.
+- ✅ **Advanced Filtering**: Filter by email verification (SPF/DKIM), attachment presence, and unsubscribe capability.
+- ✅ **Email Verification Tracking**: SPF/DKIM authentication status for each sender with visual indicators.
+- ✅ **Unsubscribe Management**: Extract and track unsubscribe links from email headers; one-click unsubscribe workflow.
+- ✅ **Attachment Analytics**: Track total attachments per sender; filter by attachment volume.
 - ✅ **Bulk Cleanup**: Type-to-confirm "DELETE" safeguards for bulk message removal.
 - ✅ **Activity Log**: Persistent log of scanned and deleted actions.
 - ✅ **Data Freshness**: Status indicators for last sync time.
 - ✅ **Focus Mode**: UI toggle to concentrate on the sender workbench.
+- ✅ **Smart Rate Limiting**: Batch processing (40 messages/sec) with exponential backoff retry logic.
 
 ### General
 - ✅ Clean, modern B2B SaaS UI with TailwindCSS.
@@ -288,16 +297,23 @@ Expected response:
 ## Limitations
 
 - **No authentication**: Currently focused on organization-wide management.
-- **No database**: Fetches from Google APIs on demand (with some localStorage caching for logs).
-- **No history tracking**: Minimal audit trail via Activity Log.
+- **Database for Gmail only**: Gmail sender data is persisted; Sheets data fetched on demand.
+- **Rate limiting**: Gmail API has quota limits (50 calls/sec); full inbox scans of 35k+ emails may take 3-5 minutes.
+- **Unsubscribe completion**: System provides unsubscribe link but user must complete unsubscribe manually via sender's website.
 
 ## Future Enhancements
 
+### Sheets
 - Full user authentication & RBAC
 - Advanced permission change tracking
-- Slack/email notifications for unusual patterns
-- Database layer for high-performance caching
 - Automated periodic scans and reports
+
+### Gmail
+- Automated unsubscribe (click unsubscribe link via API)
+- Scheduled background sender discovery
+- Email retention policy enforcement
+- Spam/phishing detection using verification metadata
+- Sender reputation scoring based on verification + volume + engagement
 
 ## Troubleshooting
 

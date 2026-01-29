@@ -301,6 +301,31 @@ export function GmailDashboard() {
         }
     };
 
+    // Unsubscribe
+    const handleUnsubscribe = async (sender: GmailSender) => {
+        try {
+            const result = await gmailApi.unsubscribe(sender.id);
+
+            // Update sender in local state to mark as unsubscribed
+            setSenders(prev => prev.map(s =>
+                s.id === sender.id
+                    ? { ...s, isUnsubscribed: true, unsubscribedAt: new Date().toISOString() }
+                    : s
+            ));
+
+            addActivity('unsubscribe', `Unsubscribed from ${sender.senderEmail}`);
+
+            // Open unsubscribe link in new tab
+            if (result.data?.unsubscribeLink) {
+                window.open(result.data.unsubscribeLink, '_blank');
+            }
+
+            setError(''); // Clear any previous errors
+        } catch (err: any) {
+            setError(err?.response?.data?.message || 'Failed to unsubscribe');
+        }
+    };
+
     // Disconnect
     const handleDisconnect = () => {
         setConfirmState({ type: 'disconnect' });
@@ -456,6 +481,7 @@ export function GmailDashboard() {
                                 onViewEmails={handleViewEmails}
                                 onDeleteSender={handleDeleteSender}
                                 onBulkDelete={handleBulkDelete}
+                                onUnsubscribe={handleUnsubscribe}
                                 loading={sendersLoading}
                                 hasMore={hasMoreSenders}
                                 onLoadMore={() => loadSenders(false)}

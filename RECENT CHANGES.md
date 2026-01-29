@@ -1,6 +1,91 @@
 # Recent Changes
 
-## Gmail Management Frontend — Complete Implementation
+## Jan 27, 2026 - Enhanced Gmail Sender Metadata & Unsubscribe Feature
+
+### Backend Changes
+
+**Database Schema (`backend/src/db/schema.ts`)**
+- Added 6 new columns to `email_senders` table:
+  - `attachmentCount` - Track total attachments from each sender
+  - `unsubscribeLink` - Store extracted unsubscribe URL from email headers
+  - `hasUnsubscribe` - Boolean flag for unsubscribe capability
+  - `isVerified` - SPF/DKIM email authentication status
+  - `isUnsubscribed` - User unsubscribe status
+  - `unsubscribedAt` - Timestamp of unsubscribe action
+
+**Email Sender Repository (`backend/src/db/repositories/email-sender.ts`)**
+- Updated `upsert()` to accept 4 optional metadata parameters
+- Added `markAsUnsubscribed(senderId)` method for tracking unsubscribe actions
+
+**Gmail Email Service (`backend/src/services/gmail-email-service.ts`)**
+- **Major Refactor** - Complete rewrite of sender fetching logic:
+  - New `fetchAllSenders()` - Processes entire inbox with auto-pagination (handles 35k+ emails)
+  - Enhanced `fetchSendersPaginated()` - Now extracts 4 email headers: `From`, `Date`, `List-Unsubscribe`, `Authentication-Results`
+  - New `batchGetMessages()` - Processes 40 messages concurrently with 1-second delays (respects 50 calls/sec Gmail API quota)
+  - New `fetchMessageWithRetry()` - Exponential backoff retry logic (2s, 4s, 8s) for rate limit errors
+  - New `extractUnsubscribeLink()` - Parses HTTP/mailto URLs from `List-Unsubscribe` header
+  - New `checkEmailVerification()` - Validates SPF/DKIM from `Authentication-Results` header
+- **Rate Limiting Strategy**:
+  - Chunks of 40 messages per batch
+  - 1-second delay between batches
+  - Automatic retry on 429/quota errors
+  - Continues processing if individual messages fail
+- **Attachment Detection**: Uses Gmail's `HAS_ATTACHMENT` label from message metadata
+- Updated `SenderInfo` interface with 4 new fields
+
+**Gmail API Routes (`backend/src/routes/gmail.ts`)**
+- New endpoint `POST /api/gmail/senders/fetch-all` - One-shot full inbox scan (auto-paginated)
+  - Processes all messages in batches
+  - Logs progress per page
+  - Returns unique senders with full metadata
+  - Optional `saveToDb` parameter (default: true)
+- New endpoint `POST /api/gmail/senders/:senderId/unsubscribe` - Unsubscribe from sender
+  - Validates sender ownership
+  - Checks `hasUnsubscribe` flag
+  - Marks as unsubscribed in DB
+  - Returns unsubscribe link for user to complete
+- New endpoint `GET /api/gmail/senders/unverified` - List unverified senders (failed SPF/DKIM)
+  - Pagination support (limit/offset)
+  - Filters where `isVerified = false`
+- Updated `POST /api/gmail/senders/fetch` to save new metadata fields
+
+### Frontend Changes
+
+**Sender List Component (`shenv/src/components/gmail/SenderList.tsx`)**
+- Added 4 new quick filter options:
+  - `verified` - Senders with passing SPF/DKIM
+  - `unverified` - Senders with failed authentication
+  - `has_attachments` - Senders who sent attachments
+  - `can_unsubscribe` - Senders with unsubscribe capability
+- New icons imported: `Paperclip`, `ShieldAlert`, `ShieldCheck`, `Mail`, `MailX`
+- Added `onUnsubscribe` prop for unsubscribe callback
+- Fixed select-all checkbox to work with filtered results (was selecting all unfiltered senders)
+
+**Gmail Dashboard (`shenv/src/pages/GmailDashboard.tsx`)**
+- Connected `onUnsubscribe` handler to call backend API
+- Displays unsubscribe link in confirmation modal
+
+**Gmail Service (`shenv/src/services/gmail.ts`)**
+- Updated `GmailSender` interface with new metadata fields
+
+### Key Features Added
+
+1. **Full Inbox Discovery** - Process 35k+ emails in one API call with automatic pagination
+2. **Email Verification** - Track SPF/DKIM authentication status per sender
+3. **Unsubscribe Management** - Extract and track unsubscribe links from email headers
+4. **Attachment Analytics** - Count and filter senders by attachment volume
+5. **Smart Rate Limiting** - Respects Gmail API quotas with batching and retry logic
+
+### Technical Improvements
+
+- **Performance**: Concurrent batch processing (40 messages at once) reduces total API calls
+- **Resilience**: Exponential backoff retry on rate limits prevents quota exhaustion
+- **Data Quality**: Parses 4 email headers for richer sender metadata
+- **User Experience**: New filtering options in UI for verification, attachments, unsubscribe
+
+---
+
+## Jan 27, 2026 - Gmail Management Frontend — Complete Implementation
 
 ### New Components (12 files)
 

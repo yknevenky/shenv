@@ -171,8 +171,14 @@ export const emailSenders = pgTable('email_senders', {
   senderEmail: text('sender_email').notNull(),
   senderName: text('sender_name'),
   emailCount: integer('email_count').default(0).notNull(),
+  attachmentCount: integer('attachment_count').default(0).notNull(), // Total attachments from this sender
   firstEmailDate: timestamp('first_email_date'),
   lastEmailDate: timestamp('last_email_date'),
+  unsubscribeLink: text('unsubscribe_link'), // Unsubscribe URL from List-Unsubscribe header
+  hasUnsubscribe: boolean('has_unsubscribe').default(false), // Whether sender has unsubscribe capability
+  isVerified: boolean('is_verified').default(true), // SPF/DKIM verification status
+  isUnsubscribed: boolean('is_unsubscribed').default(false), // User has unsubscribed
+  unsubscribedAt: timestamp('unsubscribed_at'), // When user unsubscribed
   lastSyncedAt: timestamp('last_synced_at').defaultNow().notNull(),
 });
 

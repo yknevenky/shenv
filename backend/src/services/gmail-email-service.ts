@@ -63,6 +63,10 @@ export interface SenderInfo {
   name: string | undefined;
   count: number;
   latestDate: Date | undefined;
+  attachmentCount: number;
+  unsubscribeLink: string | undefined;
+  hasUnsubscribe: boolean;
+  isVerified: boolean;
 }
 
 export interface FetchSendersResult {
@@ -82,6 +86,7 @@ export class GmailEmailService {
 
       // Get user profile for totals
       const profile = await gmail.users.getProfile({ userId: 'me' });
+      console.log(profile.data);
       const totalMessages = profile.data.messagesTotal || 0;
       const totalThreads = profile.data.threadsTotal || 0;
 
@@ -160,8 +165,74 @@ export class GmailEmailService {
   }
 
   /**
+   * Fetch ALL unique senders from entire Gmail inbox
+   * Automatically handles pagination to process all messages
+   * Processes messages in batches of 500 for efficiency
+   * This will process the ENTIRE inbox (potentially 35k+ emails) in one call
+   */
+  static async fetchAllSenders(
+    accessToken: string,
+    progressCallback?: (processed: number, total: number, senders: number) => void
+  ): Promise<{ senders: SenderInfo[]; totalProcessed: number }> {
+    try {
+      logger.info('Starting full sender discovery from Gmail (all messages)');
+
+      const senderMap = new Map<string, SenderInfo>();
+      let pageToken: string | undefined;
+      let totalProcessed = 0;
+      let pageCount = 0;
+
+      // Loop through ALL pages until no more nextPageToken
+      do {
+        pageCount++;
+        logger.info(`Processing page ${pageCount}`, { totalProcessed, uniqueSenders: senderMap.size });
+
+        // Fetch 500 messages per page and accumulate senders
+        const result = await this.fetchSendersPaginated(accessToken, 500, pageToken, senderMap);
+
+        totalProcessed += result.messagesProcessed;
+        pageToken = result.nextPageToken;
+
+        // Call progress callback if provided
+        if (progressCallback) {
+          progressCallback(totalProcessed, -1, senderMap.size); // -1 means total unknown
+        }
+
+        logger.info(`Page ${pageCount} completed`, {
+          processedThisPage: result.messagesProcessed,
+          totalProcessed,
+          uniqueSenders: senderMap.size,
+          hasMore: !!pageToken,
+        });
+
+        // Small delay to avoid rate limits (100ms between pages)
+        if (pageToken) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      } while (pageToken); // Continue until no more pages
+
+      const senders = Array.from(senderMap.values()).sort((a, b) => b.count - a.count);
+
+      logger.info('Completed full sender discovery', {
+        totalProcessed,
+        uniqueSenders: senders.length,
+        pages: pageCount,
+      });
+
+      return {
+        senders,
+        totalProcessed,
+      };
+    } catch (error) {
+      logger.error('Failed to fetch all senders', { error });
+      throw new Error(`Failed to fetch all senders: ${error}`);
+    }
+  }
+
+  /**
    * Fetch unique senders from Gmail with pagination
    * This is more efficient than fetching full emails - only gets From header
+   * Uses Google Batch API to fetch up to 100 messages per batch request
    */
   static async fetchSendersPaginated(
     accessToken: string,
@@ -190,52 +261,89 @@ export class GmailEmailService {
 
       const response = await gmail.users.messages.list(listParams);
       const messages = response.data.messages || [];
+      console.log(response.data);
+
+      // Process all messages with internal rate limiting in batchGetMessages
       let processedCount = 0;
 
-      // Fetch only From header for each message (minimal data)
-      for (const message of messages) {
-        if (!message.id) continue;
+      logger.info(`Processing ${messages.length} messages with rate limiting`);
 
-        try {
-          const msgResponse = await gmail.users.messages.get({
-            userId: 'me',
-            id: message.id,
-            format: 'metadata',
-            metadataHeaders: ['From', 'Date'],
-          });
+      if (messages.length > 0) {
+        const messageIds = messages.filter((m) => m.id).map((m) => m.id!);
 
-          const headers = msgResponse.data.payload?.headers || [];
-          const fromHeader = headers.find((h: any) => h.name.toLowerCase() === 'from')?.value || '';
-          const dateHeader = headers.find((h: any) => h.name.toLowerCase() === 'date')?.value;
+        if (messageIds.length > 0) {
+          try {
+            // Use batch request with rate limiting
+            const batchResults = await this.batchGetMessages(gmail, messageIds);
 
-          const { email, name } = this.parseEmailAddress(fromHeader);
+            // Process the batch results
+            for (const msgData of batchResults) {
+              if (!msgData) continue;
 
-          if (email) {
-            const existing = senderMap.get(email);
-            const msgDate = dateHeader ? new Date(dateHeader) : undefined;
+              const headers = msgData.payload?.headers || [];
+              const fromHeader = headers.find((h: any) => h.name.toLowerCase() === 'from')?.value || '';
+              const dateHeader = headers.find((h: any) => h.name.toLowerCase() === 'date')?.value;
+              const unsubscribeHeader = headers.find((h: any) => h.name.toLowerCase() === 'list-unsubscribe')?.value;
+              const authResultsHeader = headers.find((h: any) => h.name.toLowerCase() === 'authentication-results')?.value;
 
-            if (existing) {
-              existing.count++;
-              if (msgDate && (!existing.latestDate || msgDate > existing.latestDate)) {
-                existing.latestDate = msgDate;
+              // Check if message has attachments
+              const hasAttachment = msgData.labelIds?.includes('HAS_ATTACHMENT') || false;
+
+              const { email, name } = this.parseEmailAddress(fromHeader);
+
+              if (email) {
+                const existing = senderMap.get(email);
+                const msgDate = dateHeader ? new Date(dateHeader) : undefined;
+
+                // Extract unsubscribe link
+                const unsubscribeLink = this.extractUnsubscribeLink(unsubscribeHeader);
+
+                // Check email verification (SPF/DKIM)
+                const isVerified = this.checkEmailVerification(authResultsHeader);
+
+                if (existing) {
+                  existing.count++;
+                  if (hasAttachment) {
+                    existing.attachmentCount++;
+                  }
+                  if (msgDate && (!existing.latestDate || msgDate > existing.latestDate)) {
+                    existing.latestDate = msgDate;
+                  }
+                  // Update name if we didn't have one
+                  if (!existing.name && name) {
+                    existing.name = name;
+                  }
+                  // Update unsubscribe link if found and we don't have one
+                  if (!existing.unsubscribeLink && unsubscribeLink) {
+                    existing.unsubscribeLink = unsubscribeLink;
+                    existing.hasUnsubscribe = true;
+                  }
+                  // Mark as unverified if any email fails verification
+                  if (!isVerified) {
+                    existing.isVerified = false;
+                  }
+                } else {
+                  senderMap.set(email, {
+                    email,
+                    name,
+                    count: 1,
+                    latestDate: msgDate,
+                    attachmentCount: hasAttachment ? 1 : 0,
+                    unsubscribeLink,
+                    hasUnsubscribe: !!unsubscribeLink,
+                    isVerified,
+                  });
+                }
               }
-              // Update name if we didn't have one
-              if (!existing.name && name) {
-                existing.name = name;
-              }
-            } else {
-              senderMap.set(email, {
-                email,
-                name,
-                count: 1,
-                latestDate: msgDate,
-              });
+
+              processedCount++;
             }
-          }
 
-          processedCount++;
-        } catch (error) {
-          logger.warn(`Failed to fetch message ${message.id} for sender extraction`, { error });
+            logger.info(`Processed ${processedCount}/${messages.length} messages successfully`);
+          } catch (error) {
+            logger.error('Failed to process messages', { error });
+            // Continue even if batch fails
+          }
         }
       }
 
@@ -256,6 +364,86 @@ export class GmailEmailService {
       logger.error('Failed to fetch senders from Gmail', { error });
       throw new Error(`Failed to fetch senders: ${error}`);
     }
+  }
+
+  /**
+   * Batch get multiple messages with rate limiting and retry logic
+   * Processes messages in smaller chunks to respect Gmail API quota limits
+   * Gmail API: 250 quota units/user/second, messages.get costs 5 units = max 50 calls/sec
+   */
+  private static async batchGetMessages(gmail: any, messageIds: string[]): Promise<any[]> {
+    try {
+      // Process in chunks of 40 to stay well under the 50 requests/sec limit
+      const CHUNK_SIZE = 40;
+      const DELAY_MS = 1000; // 1 second delay between chunks
+      const allResults: any[] = [];
+
+      for (let i = 0; i < messageIds.length; i += CHUNK_SIZE) {
+        const chunk = messageIds.slice(i, i + CHUNK_SIZE);
+
+        // Fetch chunk concurrently with retry logic
+        const chunkPromises = chunk.map(async (messageId) => {
+          return this.fetchMessageWithRetry(gmail, messageId, 3);
+        });
+
+        const chunkResults = await Promise.all(chunkPromises);
+        allResults.push(...chunkResults.filter((r) => r !== null));
+
+        // Add delay between chunks to respect rate limits (except for last chunk)
+        if (i + CHUNK_SIZE < messageIds.length) {
+          logger.info(`Rate limiting: waiting ${DELAY_MS}ms before next chunk`, {
+            processed: i + CHUNK_SIZE,
+            total: messageIds.length,
+          });
+          await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+        }
+      }
+
+      logger.info(`Batch fetched ${allResults.length}/${messageIds.length} messages successfully with rate limiting`);
+      return allResults;
+    } catch (error) {
+      logger.error('Batch get messages failed', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch a single message with exponential backoff retry
+   */
+  private static async fetchMessageWithRetry(
+    gmail: any,
+    messageId: string,
+    maxRetries: number = 3
+  ): Promise<any> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await gmail.users.messages.get({
+          userId: 'me',
+          id: messageId,
+          format: 'metadata',
+          metadataHeaders: ['From', 'Date', 'List-Unsubscribe', 'Authentication-Results'],
+        });
+        return response.data;
+      } catch (error: any) {
+        const isRateLimitError = error?.message?.includes('Quota exceeded') ||
+                                 error?.code === 429 ||
+                                 error?.errors?.[0]?.reason === 'rateLimitExceeded';
+
+        if (isRateLimitError && attempt < maxRetries) {
+          // Exponential backoff: 2s, 4s, 8s
+          const backoffMs = Math.pow(2, attempt + 1) * 1000;
+          logger.warn(`Rate limit hit for message ${messageId}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`, { error: error.message });
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        } else if (attempt === maxRetries) {
+          logger.error(`Failed to fetch message ${messageId} after ${maxRetries} retries`, { error: error.message });
+          return null;
+        } else {
+          logger.warn(`Failed to fetch message ${messageId}`, { error: error.message });
+          return null;
+        }
+      }
+    }
+    return null;
   }
 
   /**
@@ -327,65 +515,6 @@ export class GmailEmailService {
   }
 
   /**
-   * Fetch all emails from user's inbox (use fetchEmailsPaginated for large inboxes)
-   * @deprecated Use fetchEmailsPaginated for better control over large inboxes
-   */
-  static async fetchAllEmails(accessToken: string): Promise<EmailMessage[]> {
-    try {
-      logger.info('Starting Gmail email discovery (fetching all)');
-
-      const gmail = GmailOAuthService.getGmailClient(accessToken);
-      const emails: EmailMessage[] = [];
-      let pageToken: string | undefined;
-
-      do {
-        // List messages from inbox
-        const listParams: any = {
-          userId: 'me',
-          maxResults: 500,
-          q: 'in:inbox',
-        };
-
-        if (pageToken) {
-          listParams.pageToken = pageToken;
-        }
-
-        const response = await gmail.users.messages.list(listParams);
-        const messages = response.data.messages || [];
-
-        // Fetch full message details for each message
-        for (const message of messages) {
-          if (!message.id) continue;
-
-          try {
-            const fullMessage = await gmail.users.messages.get({
-              userId: 'me',
-              id: message.id,
-              format: 'metadata',
-              metadataHeaders: ['From', 'Subject', 'Date'],
-            });
-
-            const email = this.parseEmailMessage(fullMessage.data);
-            if (email) {
-              emails.push(email);
-            }
-          } catch (error) {
-            logger.warn(`Failed to fetch message ${message.id}`, { error });
-          }
-        }
-
-        pageToken = response.data.nextPageToken || undefined;
-      } while (pageToken);
-
-      logger.info(`Discovered ${emails.length} emails from Gmail inbox`);
-      return emails;
-    } catch (error) {
-      logger.error('Failed to fetch Gmail emails', { error });
-      throw new Error(`Gmail email fetch failed: ${error}`);
-    }
-  }
-
-  /**
    * Parse Gmail message into EmailMessage
    */
   private static parseEmailMessage(message: any): EmailMessage | null {
@@ -446,6 +575,59 @@ export class GmailEmailService {
     }
 
     return { email: from.toLowerCase(), name: undefined };
+  }
+
+  /**
+   * Extract unsubscribe link from List-Unsubscribe header
+   * Format: <mailto:unsubscribe@example.com>, <http://example.com/unsubscribe>
+   */
+  private static extractUnsubscribeLink(listUnsubscribeHeader: string | undefined): string | undefined {
+    if (!listUnsubscribeHeader) return undefined;
+
+    // Extract HTTP/HTTPS URLs from the header
+    const urlMatch = listUnsubscribeHeader.match(/<(https?:\/\/[^>]+)>/);
+    if (urlMatch && urlMatch[1]) {
+      return urlMatch[1];
+    }
+
+    // If no HTTP URL, try mailto
+    const mailtoMatch = listUnsubscribeHeader.match(/<mailto:([^>]+)>/);
+    if (mailtoMatch && mailtoMatch[1]) {
+      return `mailto:${mailtoMatch[1]}`;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Check if email passed SPF/DKIM verification
+   * Parse Authentication-Results header to check for PASS status
+   */
+  private static checkEmailVerification(authResultsHeader: string | undefined): boolean {
+    if (!authResultsHeader) return true; // Assume verified if no header (benefit of doubt)
+
+    const headerLower = authResultsHeader.toLowerCase();
+
+    // Check for SPF and DKIM pass
+    const spfPass = headerLower.includes('spf=pass');
+    const dkimPass = headerLower.includes('dkim=pass');
+
+    // Check for failures
+    const spfFail = headerLower.includes('spf=fail') || headerLower.includes('spf=softfail');
+    const dkimFail = headerLower.includes('dkim=fail');
+
+    // Consider verified if either SPF or DKIM passes and neither fails
+    if ((spfPass || dkimPass) && !spfFail && !dkimFail) {
+      return true;
+    }
+
+    // If there are explicit failures, mark as unverified
+    if (spfFail || dkimFail) {
+      return false;
+    }
+
+    // Default to verified if authentication headers exist but are inconclusive
+    return true;
   }
 
   /**
