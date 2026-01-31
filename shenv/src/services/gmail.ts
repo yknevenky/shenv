@@ -168,10 +168,11 @@ export const gmailApi = {
     offset: number = 0,
     sortBy?: string,
     sortOrder?: string,
-    search?: string
+    search?: string,
+    filter?: string
   ) => {
     const response = await apiClient.get<SendersListResponse>('/api/gmail/senders', {
-      params: { limit, offset, sortBy, sortOrder, search },
+      params: { limit, offset, sortBy, sortOrder, search, filter },
     });
     return response.data;
   },

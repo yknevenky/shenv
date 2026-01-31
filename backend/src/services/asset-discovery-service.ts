@@ -12,6 +12,7 @@ import { WorkspaceUserRepository } from '../db/repositories/workspace-user.js';
 import { PlatformCredentialRepository } from '../db/repositories/platform-credential.js';
 import { PlatformAdapterFactory } from './platform-adapters/platform-factory.js';
 import { Platform } from '../types/index.js';
+import { refreshTokenIfNeeded } from '../middleware/token-refresh.js';
 
 export class AssetDiscoveryService {
   /**
@@ -23,6 +24,9 @@ export class AssetDiscoveryService {
   ): Promise<{ discovered: number; stored: number }> {
     try {
       logger.info('Starting asset discovery', { userId, platform });
+
+      // Refresh OAuth token if needed before making API calls
+      await refreshTokenIfNeeded(userId, platform);
 
       // Get credentials for platform
       const credentials = await PlatformCredentialRepository.getDecryptedCredentials(userId, platform);
@@ -116,6 +120,9 @@ export class AssetDiscoveryService {
   ): Promise<{ discovered: number; stored: number }> {
     try {
       logger.info('Starting workspace user discovery', { userId, platform });
+
+      // Refresh OAuth token if needed before making API calls
+      await refreshTokenIfNeeded(userId, platform);
 
       // Get credentials
       const credentials = await PlatformCredentialRepository.getDecryptedCredentials(userId, platform);
@@ -240,6 +247,9 @@ export class AssetDiscoveryService {
       if (!asset || asset.userId !== userId) {
         return { success: false, error: 'Asset not found' };
       }
+
+      // Refresh OAuth token if needed before making API calls
+      await refreshTokenIfNeeded(userId, asset.platform as Platform);
 
       // Get credentials
       const credentials = await PlatformCredentialRepository.getDecryptedCredentials(

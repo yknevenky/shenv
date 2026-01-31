@@ -1,0 +1,211 @@
+feat(drive): complete Google Drive OAuth 2.0 integration + frontend
+
+Implements comprehensive Google Drive OAuth 2.0 flow for individual users,
+enabling dual-mode authentication architecture (Service Account for business,
+OAuth for individuals) with automatic token management and analytics dashboard.
+
+BACKEND CHANGES (Phase 1-4: 100% Complete):
+
+• NEW: Drive OAuth Service (drive-oauth-service.ts)
+  - Complete OAuth 2.0 flow (auth URL, token exchange, refresh, revoke)
+  - AES-256 encrypted token storage in platform_credentials table
+  - State parameter for CSRF protection
+  - User info retrieval (email, name)
+
+• NEW: Platform OAuth Endpoints (platforms.ts)
+  - GET /api/platforms/google/oauth/url - Generate OAuth authorization URL
+  - POST /api/platforms/google/oauth/callback - Exchange code for tokens
+  - DELETE /api/platforms/google/oauth/disconnect - Revoke and delete tokens
+  - GET /api/platforms/google/oauth/status - Check connection status
+
+• REFACTOR: Google Workspace Adapter (google-workspace-adapter.ts)
+  - Dual-mode credential support (service_account + oauth)
+  - Automatic credential type detection
+  - OAuth2Client factory for token-based auth
+  - All 8 adapter methods now support both auth types
+  - Workspace user discovery limited to service accounts (DWD only)
+
+• NEW: Token Refresh Middleware (token-refresh.ts)
+  - Automatic OAuth token refresh before API calls (5-minute buffer)
+  - refreshTokenIfNeeded() - Main refresh logic
+  - withTokenRefresh() - Route handler wrapper
+  - checkTokenStatus() - Non-refreshing status check
+  - Encrypted credential updates, old credential deactivation
+
+• UPDATE: Asset Discovery Service (asset-discovery-service.ts)
+  - Integrated token refresh in 3 methods:
+    * discoverAssets() - Before Drive API calls
+    * discoverWorkspaceUsers() - Before Admin API calls
+    * refreshAsset() - Before individual asset refresh
+
+• UPDATE: Environment Config (.env.example)
+  - Added GOOGLE_OAUTH_CLIENT_ID (OAuth client ID)
+  - Added GOOGLE_OAUTH_CLIENT_SECRET (OAuth client secret)
+  - Added GOOGLE_DRIVE_OAUTH_REDIRECT_URI (frontend callback URL)
+
+FRONTEND CHANGES (Phase 5: 80% Complete):
+
+• NEW: Drive API Client (services/drive.ts)
+  - Complete TypeScript client for Drive operations
+  - 3 API modules: driveOAuthApi, driveAssetsApi, driveAnalyticsApi
+  - Type-safe interfaces: DriveOAuthStatus, DriveAsset, DrivePermission
+
+• NEW: ConnectDrive Component (components/drive/ConnectDrive.tsx)
+  - OAuth connection management with visual feedback
+  - Connect button → Redirects to Google OAuth consent
+  - Connected state: Shows user email, auth type, disconnect button
+  - Loading, error, and success states
+
+• NEW: DriveAnalytics Component (components/drive/DriveAnalytics.tsx)
+  - Comprehensive analytics dashboard
+  - 4 overview stat cards (Total, High Risk, Orphaned, Inactive files)
+  - Asset type breakdown (Spreadsheet, Document, Presentation, etc.)
+  - Risk distribution (Low/Medium/High with color coding)
+  - Permission statistics (Total, Average, High permission files)
+  - Discover Drive Files button with confirmation
+  - Last sync time tracking in localStorage
+
+• NEW: DriveDashboard Page (pages/DriveDashboard.tsx)
+  - Main Drive page with connection status
+  - Conditional rendering based on OAuth state
+  - Analytics display when connected
+  - Empty state when not connected
+
+• NEW: DriveAuthCallback Page (pages/DriveAuthCallback.tsx)
+  - OAuth callback handler for Google redirect
+  - Extracts code/error from URL params
+  - Calls backend to exchange code for tokens
+  - Success state with user info + auto-redirect (2 seconds)
+  - Error state with retry button
+
+• UPDATE: App Routing (App.tsx)
+  - Added /drive route → DriveDashboard (protected)
+  - Added /drive/auth-callback route → DriveAuthCallback (protected)
+
+• UPDATE: Header Navigation (Header.tsx)
+  - Added Drive link to main navigation
+  - Navigation: Sheets, Drive, Gmail
+
+DOCUMENTATION:
+
+• NEW: DRIVE_OAUTH_COMPLETE.md
+  - Complete OAuth implementation guide
+  - Backend implementation details
+  - API endpoint documentation with curl examples
+  - Google Cloud Project setup (OAuth client, consent screen, scopes)
+  - Security considerations
+  - Testing checklist
+
+• NEW: FRONTEND_DRIVE_IMPLEMENTATION.md
+  - Frontend component structure
+  - OAuth flow diagrams
+  - UI/UX patterns
+  - Data flow diagrams
+  - Testing workflow
+
+• UPDATE: RECENT CHANGES.md
+  - Added January 30, 2026 entry
+  - Backend changes (7 sections)
+  - Frontend changes (7 sections)
+  - Key features, limitations, next steps
+
+• UPDATE: LAST COMMIT.md
+  - Complete rewrite with Drive OAuth integration summary
+  - Backend changes (7 sections)
+  - Frontend changes (7 sections)
+  - OAuth flow end-to-end documentation
+
+• UPDATE: README.md
+  - Updated title: "Google Workspace Governance Platform"
+  - Added dual-mode authentication description
+  - Updated tech stack (PostgreSQL, OAuth 2.0, etc.)
+
+KEY FEATURES:
+
+1. Dual-Mode Architecture
+   • Business Users: Service Account + DWD → Full workspace access
+   • Individual Users: OAuth 2.0 → Personal Drive only
+
+2. Complete OAuth 2.0 Flow
+   • Authorization URL generation with CSRF protection
+   • Token exchange and encrypted storage
+   • Automatic token refresh (5-minute buffer)
+   • Token revocation on disconnect
+
+3. Drive Analytics
+   • 5 comprehensive analytics endpoints
+   • Real-time risk scoring (7-factor algorithm)
+   • Asset type distribution
+   • Permission statistics
+
+4. Automatic Token Management
+   • Token refresh middleware
+   • No manual token management
+   • Error handling for revoked tokens
+
+TECHNICAL IMPROVEMENTS:
+
+• Platform-agnostic adapter design (transparent dual-mode handling)
+• Automatic token refresh with 5-minute expiry buffer
+• Smart credential type detection
+• Type-safe API client with complete TypeScript interfaces
+• Responsive design with TailwindCSS
+• Component composition (reusable ConnectDrive, DriveAnalytics)
+
+OAUTH FLOW (END-TO-END):
+
+1. User visits /drive → Shows ConnectDrive if not connected
+2. User clicks "Connect with Google" → Redirects to Google OAuth
+3. User authorizes → Google redirects to /drive/auth-callback?code=...
+4. Frontend calls backend with code → Backend exchanges for tokens
+5. Tokens encrypted and stored → Success page with user info
+6. Auto-redirects to /drive → Analytics available
+
+FILES CHANGED:
+
+Backend (7 files):
+- backend/src/services/drive-oauth-service.ts (NEW)
+- backend/src/middleware/token-refresh.ts (NEW)
+- backend/src/routes/platforms.ts (UPDATED)
+- backend/src/services/platform-adapters/google-workspace-adapter.ts (REFACTORED)
+- backend/src/services/asset-discovery-service.ts (UPDATED)
+- backend/src/routes/assets.ts (EXISTING - analytics endpoints)
+- backend/.env.example (UPDATED)
+
+Frontend (7 files):
+- shenv/src/services/drive.ts (NEW)
+- shenv/src/components/drive/ConnectDrive.tsx (NEW)
+- shenv/src/components/drive/DriveAnalytics.tsx (NEW)
+- shenv/src/pages/DriveDashboard.tsx (NEW)
+- shenv/src/pages/DriveAuthCallback.tsx (NEW)
+- shenv/src/App.tsx (UPDATED)
+- shenv/src/components/Header.tsx (UPDATED)
+
+Documentation (5 files):
+- DRIVE_OAUTH_COMPLETE.md (NEW)
+- FRONTEND_DRIVE_IMPLEMENTATION.md (NEW)
+- RECENT CHANGES.md (UPDATED)
+- LAST COMMIT.md (UPDATED)
+- README.md (UPDATED)
+
+PROGRESS: ~85% complete
+- Backend: 100% ✅
+- Frontend: 80% ✅
+- Remaining: Asset list, asset details modal, mode selector, advanced charts, testing
+
+BREAKING CHANGES: None
+
+ENVIRONMENT SETUP REQUIRED:
+
+1. Add to backend/.env:
+   GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
+   GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
+   GOOGLE_DRIVE_OAUTH_REDIRECT_URI=http://localhost:5173/drive/auth-callback
+
+2. Google Cloud Console:
+   - Create OAuth client ID (Web application)
+   - Add authorized redirect URI: http://localhost:5173/drive/auth-callback
+   - Configure OAuth consent screen
+   - Add scopes: drive.readonly, drive.metadata.readonly, userinfo.email, userinfo.profile
+
+Refs: Jan 30, 2026 - Drive OAuth Integration

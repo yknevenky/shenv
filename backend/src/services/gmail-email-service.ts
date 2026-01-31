@@ -86,7 +86,6 @@ export class GmailEmailService {
 
       // Get user profile for totals
       const profile = await gmail.users.getProfile({ userId: 'me' });
-      console.log(profile.data);
       const totalMessages = profile.data.messagesTotal || 0;
       const totalThreads = profile.data.threadsTotal || 0;
 
@@ -261,7 +260,6 @@ export class GmailEmailService {
 
       const response = await gmail.users.messages.list(listParams);
       const messages = response.data.messages || [];
-      console.log(response.data);
 
       // Process all messages with internal rate limiting in batchGetMessages
       let processedCount = 0;

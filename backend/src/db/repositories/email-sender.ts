@@ -4,13 +4,14 @@
  * Database operations for email senders
  */
 
-import { eq, desc, and, asc, ilike, or, count, sum } from 'drizzle-orm';
+import { eq, desc, and, asc, ilike, or, count, sum, gte, gt } from 'drizzle-orm';
 import { db } from '../connection.js';
 import { emailSenders } from '../schema.js';
 import { logger } from '../../utils/logger.js';
 
 export type SortField = 'emailCount' | 'lastEmailDate' | 'firstEmailDate' | 'senderEmail' | 'senderName';
 export type SortOrder = 'asc' | 'desc';
+export type FilterType = 'all' | 'high_volume' | 'recent' | 'verified' | 'unverified' | 'has_attachments' | 'can_unsubscribe';
 
 export interface FindAllOptions {
   limit?: number;
@@ -18,6 +19,7 @@ export interface FindAllOptions {
   sortBy?: SortField;
   sortOrder?: SortOrder;
   search?: string;
+  filter?: FilterType;
 }
 
 export class EmailSenderRepository {
@@ -133,17 +135,41 @@ export class EmailSenderRepository {
       sortBy = 'emailCount',
       sortOrder = 'desc',
       search,
+      filter = 'all',
     } = options;
 
     try {
       // Build where conditions
       const conditions = [eq(emailSenders.userId, userId)];
 
+      // Apply search filter
       if (search) {
         conditions.push(
           or(
             ilike(emailSenders.senderEmail, `%${search}%`),
             ilike(emailSenders.senderName, `%${search}%`)
+          )!
+        );
+      }
+
+      // Apply quick filters
+      if (filter === 'high_volume') {
+        conditions.push(gte(emailSenders.emailCount, 50));
+      } else if (filter === 'recent') {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        conditions.push(gte(emailSenders.lastEmailDate, sevenDaysAgo));
+      } else if (filter === 'verified') {
+        conditions.push(eq(emailSenders.isVerified, true));
+      } else if (filter === 'unverified') {
+        conditions.push(eq(emailSenders.isVerified, false));
+      } else if (filter === 'has_attachments') {
+        conditions.push(gt(emailSenders.attachmentCount, 0));
+      } else if (filter === 'can_unsubscribe') {
+        conditions.push(
+          and(
+            eq(emailSenders.hasUnsubscribe, true),
+            eq(emailSenders.isUnsubscribed, false)
           )!
         );
       }
@@ -218,17 +244,40 @@ export class EmailSenderRepository {
   }
 
   /**
-   * Get total count of senders for a user (with optional search)
+   * Get total count of senders for a user (with optional search and filter)
    */
-  static async countByUser(userId: number, search?: string): Promise<number> {
+  static async countByUser(userId: number, search?: string, filter: FilterType = 'all'): Promise<number> {
     try {
       const conditions = [eq(emailSenders.userId, userId)];
 
+      // Apply search filter
       if (search) {
         conditions.push(
           or(
             ilike(emailSenders.senderEmail, `%${search}%`),
             ilike(emailSenders.senderName, `%${search}%`)
+          )!
+        );
+      }
+
+      // Apply quick filters (same logic as findAllByUser)
+      if (filter === 'high_volume') {
+        conditions.push(gte(emailSenders.emailCount, 50));
+      } else if (filter === 'recent') {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        conditions.push(gte(emailSenders.lastEmailDate, sevenDaysAgo));
+      } else if (filter === 'verified') {
+        conditions.push(eq(emailSenders.isVerified, true));
+      } else if (filter === 'unverified') {
+        conditions.push(eq(emailSenders.isVerified, false));
+      } else if (filter === 'has_attachments') {
+        conditions.push(gt(emailSenders.attachmentCount, 0));
+      } else if (filter === 'can_unsubscribe') {
+        conditions.push(
+          and(
+            eq(emailSenders.hasUnsubscribe, true),
+            eq(emailSenders.isUnsubscribed, false)
           )!
         );
       }

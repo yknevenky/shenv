@@ -1,36 +1,51 @@
-# Shenv - Google Sheets & Gmail Governance Platform
+# Shenv - Google Workspace Governance Platform
 
-A minimal B2B SaaS tool for monitoring and governing Google Sheets and Gmail access across your organization. Built with React, TypeScript, and Hono.js.
+A comprehensive B2B SaaS platform for monitoring and governing Google Workspace (Sheets, Drive, Gmail) with support for both business (Domain-Wide Delegation) and individual (OAuth 2.0) users. Built with React, TypeScript, Hono.js, and PostgreSQL.
 
 ## Problem Statement
 
-Organizations often lack visibility into:
-- Who has access to which Google Sheets and what permission levels they have.
-- Overall sheets access patterns and historical grant/modification data.
-- **Gmail overhead**: High volume of senders and messages cluttering institutional inboxes without easy bulk management or insight.
+Organizations and individuals lack visibility into:
+- **Google Sheets**: Who has access to which sheets and what permission levels they have
+- **Google Drive**: File permissions, sharing patterns, and security risks
+- **Gmail**: High-volume senders cluttering inboxes without easy bulk management
+- Overall workspace access patterns and governance controls
 
 ## Solution
 
-Shenv provides a unified dashboard to:
-- **Google Sheets**: Discover all sheets in your organization, list permission details, and provide search/filtering for auditing using Domain-Wide Delegation.
-- **Gmail Management**: Discover, scan, and manage organization email volume. Identity high-volume senders, perform bulk deletions with safety checks, and monitor data freshness.
+Shenv provides a unified platform with **dual-mode authentication**:
+
+### Business Users (Service Account + Domain-Wide Delegation)
+- **Google Sheets**: Discover all sheets across organization, analyze permissions, manage governance actions
+- **Google Drive**: Full workspace file discovery, risk scoring, permission analytics
+- **Gmail**: Organizational email management (requires OAuth for individuals)
+
+### Individual Users (OAuth 2.0)
+- **Google Drive**: Personal file discovery, risk analysis, permission insights
+- **Gmail**: Inbox sender analytics, bulk cleanup, unsubscribe management
+- Automatic token refresh with 5-minute expiry buffer
+- Secure encrypted token storage
 
 ## Tech Stack
 
 ### Backend
 - **Hono.js** - Lightweight web framework
-- **TypeScript** - Type-safe development
-- **Google APIs** - Sheets API, Drive API, Gmail API
-- **Node.js** - Runtime environment
+- **TypeScript** - Type-safe development with ES Modules
+- **PostgreSQL 16** - Database with Drizzle ORM
+- **Google APIs** - Admin Directory, Drive API, Sheets API, Gmail API
+- **Authentication** - JWT tokens + bcrypt password hashing
+- **Security** - AES-256-CBC encryption for credentials
+- **OAuth 2.0** - Google OAuth for individual users
+- **Node.js 18+** - Runtime environment
+- **Docker Compose** - PostgreSQL containerization
 
 ### Frontend
 - **React 19** - UI framework
 - **TypeScript** - Type-safe development
 - **Vite** - Build tool and dev server
-- **TailwindCSS** - Utility-first CSS
-- **React Router** - Client-side routing
+- **TailwindCSS v4** - Utility-first CSS
+- **React Router v7** - Client-side routing
 - **React Query** - Server state management
-- **Axios** - HTTP client
+- **Axios** - HTTP client with JWT interceptors
 
 ## Project Structure
 

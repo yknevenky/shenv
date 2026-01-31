@@ -21,6 +21,8 @@ interface SenderListProps {
     sortBy: string;
     sortOrder: 'asc' | 'desc';
     onSortChange: (sortBy: string, sortOrder: 'asc' | 'desc') => void;
+    activeFilter: string;
+    onFilterChange: (filter: string) => void;
     totalCount: number;
     onScanInbox?: () => void;
 }
@@ -49,11 +51,12 @@ export function SenderList({
     sortBy,
     sortOrder,
     onSortChange,
+    activeFilter,
+    onFilterChange,
     totalCount,
     onScanInbox,
 }: SenderListProps) {
     const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-    const [activeFilter, setActiveFilter] = useState<QuickFilter>('all');
 
     const toggleSelect = (id: number) => {
         const next = new Set(selectedIds);
@@ -66,16 +69,15 @@ export function SenderList({
     };
 
     const toggleSelectAll = () => {
-        const filteredSendersList = getFilteredSenders();
-        if (selectedIds.size === filteredSendersList.length) {
+        if (selectedIds.size === senders.length) {
             setSelectedIds(new Set());
         } else {
-            setSelectedIds(new Set(filteredSendersList.map(s => s.id)));
+            setSelectedIds(new Set(senders.map(s => s.id)));
         }
     };
 
     const handleQuickFilter = (filter: QuickFilter) => {
-        setActiveFilter(filter);
+        onFilterChange(filter);
         if (filter === 'all') {
             onSearchChange('');
             onSortChange('emailCount', 'desc');
@@ -100,39 +102,11 @@ export function SenderList({
         }
     };
 
-    // Apply client-side filters
-    const getFilteredSenders = () => {
-        if (activeFilter === 'all') return senders;
-
-        return senders.filter(sender => {
-            switch (activeFilter) {
-                case 'high_volume':
-                    return sender.emailCount >= 50;
-                case 'recent':
-                    const sevenDaysAgo = new Date();
-                    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-                    return new Date(sender.lastEmailDate) >= sevenDaysAgo;
-                case 'verified':
-                    return sender.isVerified === true;
-                case 'unverified':
-                    return sender.isVerified === false;
-                case 'has_attachments':
-                    return sender.attachmentCount > 0;
-                case 'can_unsubscribe':
-                    return sender.hasUnsubscribe && !sender.isUnsubscribed;
-                default:
-                    return true;
-            }
-        });
-    };
-
-    const filteredSenders = getFilteredSenders();
-
-    const selectedSenders = filteredSenders.filter(s => selectedIds.has(s.id));
+    const selectedSenders = senders.filter(s => selectedIds.has(s.id));
     const estimatedEmails = selectedSenders.reduce((acc, s) => acc + s.emailCount, 0);
 
     // Empty state
-    if (filteredSenders.length === 0 && !loading && !search && activeFilter === 'all') {
+    if (senders.length === 0 && !loading && !search && activeFilter === 'all') {
         return (
             <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-12 text-center">
                 <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -225,9 +199,9 @@ export function SenderList({
 
                 <div className="ml-auto flex items-center gap-3">
                     <span className="text-xs text-gray-500">
-                        {filteredSenders.length} {activeFilter !== 'all' ? 'filtered' : ''} of {totalCount} senders
+                        {senders.length} {activeFilter !== 'all' ? 'filtered' : ''} of {totalCount} senders
                     </span>
-                    <ExportButton senders={filteredSenders} />
+                    <ExportButton senders={senders} />
                 </div>
             </div>
 
@@ -238,7 +212,7 @@ export function SenderList({
                         onClick={toggleSelectAll}
                         className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900"
                     >
-                        {selectedIds.size === filteredSenders.length && filteredSenders.length > 0 ? (
+                        {selectedIds.size === senders.length && senders.length > 0 ? (
                             <CheckSquare className="w-5 h-5 text-blue-600" />
                         ) : (
                             <Square className="w-5 h-5 text-gray-400" />
@@ -256,7 +230,7 @@ export function SenderList({
 
             {/* List */}
             <div className="divide-y divide-gray-100">
-                {filteredSenders.map((sender) => (
+                {senders.map((sender) => (
                     <div
                         key={sender.id}
                         className={`flex items-center justify-between p-4 hover:bg-gray-50 transition-colors ${
@@ -360,13 +334,13 @@ export function SenderList({
                 ))}
 
                 {/* Empty states for filters */}
-                {filteredSenders.length === 0 && !loading && activeFilter !== 'all' && (
+                {senders.length === 0 && !loading && activeFilter !== 'all' && (
                     <div className="p-12 text-center text-gray-500">
                         No senders match the selected filter
                     </div>
                 )}
 
-                {filteredSenders.length === 0 && !loading && search && activeFilter === 'all' && (
+                {senders.length === 0 && !loading && search && activeFilter === 'all' && (
                     <div className="p-12 text-center text-gray-500">
                         No senders match "{search}"
                     </div>

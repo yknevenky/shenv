@@ -1,4 +1,4 @@
-import { eq, and, desc, like, or } from 'drizzle-orm';
+import { eq, and, desc, like, or, count, sql, gte } from 'drizzle-orm';
 import { db } from '../connection.js';
 import { assets } from '../schema.js';
 
@@ -184,44 +184,60 @@ export class AssetRepository {
   }
 
   /**
-   * Get orphaned assets for a user
+   * Get orphaned assets for a user (with optional platform filter)
    */
-  static async findOrphanedAssets(userId: number): Promise<Asset[]> {
+  static async findOrphanedAssets(userId: number, platform?: string): Promise<Asset[]> {
+    const conditions = [
+      eq(assets.userId, userId),
+      eq(assets.isOrphaned, true),
+    ];
+    if (platform) {
+      conditions.push(eq(assets.platform, platform as any));
+    }
+
     return db
       .select()
       .from(assets)
-      .where(and(
-        eq(assets.userId, userId),
-        eq(assets.isOrphaned, true)
-      ))
+      .where(and(...conditions))
       .orderBy(desc(assets.lastModifiedAt));
   }
 
   /**
-   * Get inactive assets for a user
+   * Get inactive assets for a user (with optional platform filter)
    */
-  static async findInactiveAssets(userId: number): Promise<Asset[]> {
+  static async findInactiveAssets(userId: number, platform?: string): Promise<Asset[]> {
+    const conditions = [
+      eq(assets.userId, userId),
+      eq(assets.isInactive, true),
+    ];
+    if (platform) {
+      conditions.push(eq(assets.platform, platform as any));
+    }
+
     return db
       .select()
       .from(assets)
-      .where(and(
-        eq(assets.userId, userId),
-        eq(assets.isInactive, true)
-      ))
+      .where(and(...conditions))
       .orderBy(desc(assets.lastModifiedAt));
   }
 
   /**
-   * Get assets with high risk score
+   * Get assets with high risk score (with optional platform filter)
    */
-  static async findHighRiskAssets(userId: number, minRiskScore: number = 70): Promise<Asset[]> {
-    const allAssets = await db
+  static async findHighRiskAssets(userId: number, minRiskScore: number = 70, platform?: string): Promise<Asset[]> {
+    const conditions = [
+      eq(assets.userId, userId),
+      gte(assets.riskScore, minRiskScore),
+    ];
+    if (platform) {
+      conditions.push(eq(assets.platform, platform as any));
+    }
+
+    return db
       .select()
       .from(assets)
-      .where(eq(assets.userId, userId))
+      .where(and(...conditions))
       .orderBy(desc(assets.riskScore));
-
-    return allAssets.filter(asset => (asset.riskScore || 0) >= minRiskScore);
   }
 
   /**
@@ -294,14 +310,20 @@ export class AssetRepository {
   }
 
   /**
-   * Get count of assets for a specific user
+   * Get count of assets for a specific user (with optional platform filter)
    */
-  static async countByUser(userId: number): Promise<number> {
-    const result = await db
-      .select()
+  static async countByUser(userId: number, platform?: string): Promise<number> {
+    const conditions = [eq(assets.userId, userId)];
+    if (platform) {
+      conditions.push(eq(assets.platform, platform as any));
+    }
+
+    const [result] = await db
+      .select({ count: count() })
       .from(assets)
-      .where(eq(assets.userId, userId));
-    return result.length;
+      .where(and(...conditions));
+
+    return Number(result?.count) || 0;
   }
 
   /**
@@ -331,4 +353,111 @@ export class AssetRepository {
       ));
     return result.length;
   }
+
+  /**
+   * Get asset type distribution with counts
+   */
+  static async getTypeDistribution(userId: number, platform?: string): Promise<{ assetType: string; count: number }[]> {
+    const conditions = [eq(assets.userId, userId)];
+    if (platform) {
+      conditions.push(eq(assets.platform, platform as any));
+    }
+
+    const result = await db
+      .select({
+        assetType: assets.assetType,
+        count: count(),
+      })
+      .from(assets)
+      .where(and(...conditions))
+      .groupBy(assets.assetType)
+      .orderBy(desc(count()));
+
+    return result.map(r => ({
+      assetType: r.assetType,
+      count: Number(r.count),
+    }));
+  }
+
+  /**
+   * Get platform distribution with counts
+   */
+  static async getPlatformDistribution(userId: number): Promise<{ platform: string; count: number }[]> {
+    const result = await db
+      .select({
+        platform: assets.platform,
+        count: count(),
+      })
+      .from(assets)
+      .where(eq(assets.userId, userId))
+      .groupBy(assets.platform)
+      .orderBy(desc(count()));
+
+    return result.map(r => ({
+      platform: r.platform,
+      count: Number(r.count),
+    }));
+  }
+
+  /**
+   * Get permission statistics
+   */
+  static async getPermissionStats(userId: number, platform?: string): Promise<{
+    avgPermissions: number;
+    maxPermissions: number;
+    assetsWithPublicAccess: number;
+    assetsWithExternalAccess: number;
+  }> {
+    const conditions = [eq(assets.userId, userId)];
+    if (platform) {
+      conditions.push(eq(assets.platform, platform as any));
+    }
+
+    const [stats] = await db
+      .select({
+        avgPermissions: sql<number>`AVG(${assets.permissionCount})`,
+        maxPermissions: sql<number>`MAX(${assets.permissionCount})`,
+        totalAssets: count(),
+      })
+      .from(assets)
+      .where(and(...conditions));
+
+    // For now, return basic stats
+    // In future, we can query permissions table for more detailed stats
+    return {
+      avgPermissions: Math.round(Number(stats?.avgPermissions) || 0),
+      maxPermissions: Number(stats?.maxPermissions) || 0,
+      assetsWithPublicAccess: 0, // TODO: Implement with permissions table join
+      assetsWithExternalAccess: 0, // TODO: Implement with permissions table join
+    };
+  }
+
+  /**
+   * Get risk distribution (Low: 0-30, Medium: 31-60, High: 61-100)
+   */
+  static async getRiskDistribution(userId: number, platform?: string): Promise<{ riskLevel: string; count: number }[]> {
+    const conditions = [eq(assets.userId, userId)];
+    if (platform) {
+      conditions.push(eq(assets.platform, platform as any));
+    }
+
+    const allAssets = await db
+      .select({
+        riskScore: assets.riskScore,
+      })
+      .from(assets)
+      .where(and(...conditions));
+
+    // Group by risk level
+    const low = allAssets.filter(a => (a.riskScore ?? 0) >= 0 && (a.riskScore ?? 0) <= 30).length;
+    const medium = allAssets.filter(a => (a.riskScore ?? 0) >= 31 && (a.riskScore ?? 0) <= 60).length;
+    const high = allAssets.filter(a => (a.riskScore ?? 0) >= 61 && (a.riskScore ?? 0) <= 100).length;
+
+    return [
+      { riskLevel: 'Low (0-30)', count: low },
+      { riskLevel: 'Medium (31-60)', count: medium },
+      { riskLevel: 'High (61-100)', count: high },
+    ];
+  }
+
 }

@@ -591,6 +591,7 @@ app.post('/senders/fetch', async (c) => {
  * - sortBy: 'emailCount' | 'lastEmailDate' | 'firstEmailDate' | 'senderEmail' | 'senderName'
  * - sortOrder: 'asc' | 'desc' (default 'desc')
  * - search: string (searches email and name)
+ * - filter: 'all' | 'high_volume' | 'recent' | 'verified' | 'unverified' | 'has_attachments' | 'can_unsubscribe'
  */
 app.get('/senders', async (c) => {
   try {
@@ -604,15 +605,17 @@ app.get('/senders', async (c) => {
     const sortBy = (c.req.query('sortBy') || 'emailCount') as 'emailCount' | 'lastEmailDate' | 'firstEmailDate' | 'senderEmail' | 'senderName';
     const sortOrder = (c.req.query('sortOrder') || 'desc') as 'asc' | 'desc';
     const search = c.req.query('search') || undefined;
+    const filter = (c.req.query('filter') || 'all') as 'all' | 'high_volume' | 'recent' | 'verified' | 'unverified' | 'has_attachments' | 'can_unsubscribe';
 
     const senders = await EmailSenderRepository.findAllByUser(user.id, {
       limit,
       offset,
       sortBy,
       sortOrder,
+      filter,
       ...(search && { search }),
     });
-    const totalCount = await EmailSenderRepository.countByUser(user.id, search);
+    const totalCount = await EmailSenderRepository.countByUser(user.id, search, filter);
     const stats = await EmailSenderRepository.getStats(user.id);
 
     return c.json({

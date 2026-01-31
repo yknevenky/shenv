@@ -9,6 +9,8 @@ import { SheetDetails } from './pages/SheetDetails';
 import { GmailDashboard } from './pages/GmailDashboard';
 import { GmailAuthSuccess } from './pages/GmailAuthSuccess';
 import { GmailAuthError } from './pages/GmailAuthError';
+import DriveDashboard from './pages/DriveDashboard';
+import DriveAuthCallback from './pages/DriveAuthCallback';
 import Signin from './pages/Signin';
 import Signup from './pages/Signup';
 
@@ -82,6 +84,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <GmailDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/drive"
+            element={
+              <ProtectedRoute>
+                <DriveDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/drive/auth-callback"
+            element={
+              <ProtectedRoute>
+                <DriveAuthCallback />
               </ProtectedRoute>
             }
           />

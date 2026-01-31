@@ -6,6 +6,7 @@
  */
 
 import { google } from 'googleapis';
+import { OAuth2Client } from 'google-auth-library';
 import { logger } from '../../utils/logger.js';
 import {
   IPlatformAdapter,
@@ -24,7 +25,63 @@ export class GoogleWorkspaceAdapter implements IPlatformAdapter {
   }
 
   /**
-   * Validate Google service account credentials
+   * Detect credential type: service_account or oauth
+   */
+  private detectCredentialType(credentials: any): 'service_account' | 'oauth' | 'unknown' {
+    if (credentials.type === 'service_account') {
+      return 'service_account';
+    }
+    if (credentials.accessToken || credentials.refreshToken) {
+      return 'oauth';
+    }
+    return 'unknown';
+  }
+
+  /**
+   * Create OAuth2 client from OAuth credentials
+   */
+  private createOAuthClient(credentials: any): OAuth2Client {
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+
+    const tokenData: any = {
+      access_token: credentials.accessToken,
+      refresh_token: credentials.refreshToken,
+    };
+
+    if (credentials.expiresAt) {
+      tokenData.expiry_date = new Date(credentials.expiresAt).getTime();
+    }
+
+    oauth2Client.setCredentials(tokenData);
+
+    return oauth2Client;
+  }
+
+  /**
+   * Create auth client based on credential type
+   */
+  private async createAuthClient(credentials: any): Promise<any> {
+    const credType = this.detectCredentialType(credentials);
+
+    if (credType === 'service_account') {
+      const auth = new google.auth.GoogleAuth({
+        credentials,
+        scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+      });
+      return auth;
+    } else if (credType === 'oauth') {
+      return this.createOAuthClient(credentials);
+    } else {
+      throw new Error('Unknown credential type');
+    }
+  }
+
+  /**
+   * Validate Google credentials (service account or OAuth)
    */
   async validateCredentials(credentials: any): Promise<boolean> {
     try {
@@ -32,41 +89,51 @@ export class GoogleWorkspaceAdapter implements IPlatformAdapter {
         return false;
       }
 
-      // Check required fields for Google service account
-      const requiredFields = [
-        'type',
-        'project_id',
-        'private_key_id',
-        'private_key',
-        'client_email',
-        'client_id',
-      ];
+      const credType = this.detectCredentialType(credentials);
 
-      for (const field of requiredFields) {
-        if (!credentials[field]) {
-          logger.warn(`Missing required field in Google credentials: ${field}`);
+      if (credType === 'service_account') {
+        // Check required fields for Google service account
+        const requiredFields = [
+          'type',
+          'project_id',
+          'private_key_id',
+          'private_key',
+          'client_email',
+          'client_id',
+        ];
+
+        for (const field of requiredFields) {
+          if (!credentials[field]) {
+            logger.warn(`Missing required field in Google service account: ${field}`);
+            return false;
+          }
+        }
+
+        // Try to create a client to validate credentials
+        const auth = new google.auth.GoogleAuth({
+          credentials,
+          scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+        });
+
+        const client = await auth.getClient();
+        if (!client) {
           return false;
         }
-      }
 
-      // Verify it's a service account
-      if (credentials.type !== 'service_account') {
-        logger.warn('Invalid credential type, expected service_account');
+        return true;
+      } else if (credType === 'oauth') {
+        // OAuth credentials - check required fields
+        if (!credentials.accessToken) {
+          logger.warn('Missing accessToken in OAuth credentials');
+          return false;
+        }
+
+        // OAuth credentials are validated at token exchange time
+        return true;
+      } else {
+        logger.warn('Unknown credential type');
         return false;
       }
-
-      // Try to create a client to validate credentials
-      const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive.readonly'],
-      });
-
-      const client = await auth.getClient();
-      if (!client) {
-        return false;
-      }
-
-      return true;
     } catch (error) {
       logger.error('Failed to validate Google credentials', { error });
       return false;
@@ -80,11 +147,7 @@ export class GoogleWorkspaceAdapter implements IPlatformAdapter {
     try {
       logger.info('Starting Google Workspace asset discovery', { userId });
 
-      const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive.readonly'],
-      });
-
+      const auth = await this.createAuthClient(credentials);
       const drive = google.drive({ version: 'v3', auth });
       const discoveredAssets: DiscoveredAsset[] = [];
       let pageToken: string | undefined;
@@ -158,10 +221,18 @@ export class GoogleWorkspaceAdapter implements IPlatformAdapter {
 
   /**
    * Discover workspace users using Google Admin API
+   * NOTE: Only works with service account + Domain-Wide Delegation, not OAuth
    */
   async discoverWorkspaceUsers(credentials: any, userId: number): Promise<DiscoveredWorkspaceUser[]> {
     try {
       logger.info('Starting Google Workspace user discovery', { userId });
+
+      // Check credential type - workspace user discovery requires service account
+      const credType = this.detectCredentialType(credentials);
+      if (credType === 'oauth') {
+        logger.warn('Workspace user discovery not available with OAuth credentials (requires DWD)');
+        return []; // Return empty array for OAuth users
+      }
 
       const auth = new google.auth.GoogleAuth({
         credentials,
@@ -226,11 +297,7 @@ export class GoogleWorkspaceAdapter implements IPlatformAdapter {
    */
   async getAssetPermissions(credentials: any, externalAssetId: string): Promise<DiscoveredPermission[]> {
     try {
-      const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive.readonly'],
-      });
-
+      const auth = await this.createAuthClient(credentials);
       const drive = google.drive({ version: 'v3', auth });
 
       const response = await drive.permissions.list({
@@ -258,11 +325,7 @@ export class GoogleWorkspaceAdapter implements IPlatformAdapter {
    */
   async getAssetDetails(credentials: any, externalAssetId: string): Promise<DiscoveredAsset> {
     try {
-      const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive.readonly'],
-      });
-
+      const auth = await this.createAuthClient(credentials);
       const drive = google.drive({ version: 'v3', auth });
 
       const response = await drive.files.get({
@@ -315,10 +378,11 @@ export class GoogleWorkspaceAdapter implements IPlatformAdapter {
    */
   async deleteAsset(credentials: any, externalAssetId: string): Promise<void> {
     try {
-      const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive'],
-      });
+      // Note: For OAuth, user needs Drive write scope
+      const credType = this.detectCredentialType(credentials);
+      const auth = credType === 'service_account'
+        ? new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/drive'] })
+        : await this.createAuthClient(credentials);
 
       const drive = google.drive({ version: 'v3', auth });
 
@@ -338,10 +402,10 @@ export class GoogleWorkspaceAdapter implements IPlatformAdapter {
    */
   async changeVisibility(credentials: any, externalAssetId: string, visibility: string): Promise<void> {
     try {
-      const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive'],
-      });
+      const credType = this.detectCredentialType(credentials);
+      const auth = credType === 'service_account'
+        ? new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/drive'] })
+        : await this.createAuthClient(credentials);
 
       const drive = google.drive({ version: 'v3', auth });
 
@@ -371,10 +435,10 @@ export class GoogleWorkspaceAdapter implements IPlatformAdapter {
    */
   async removePermission(credentials: any, externalAssetId: string, externalPermissionId: string): Promise<void> {
     try {
-      const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive'],
-      });
+      const credType = this.detectCredentialType(credentials);
+      const auth = credType === 'service_account'
+        ? new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/drive'] })
+        : await this.createAuthClient(credentials);
 
       const drive = google.drive({ version: 'v3', auth });
 
@@ -395,10 +459,10 @@ export class GoogleWorkspaceAdapter implements IPlatformAdapter {
    */
   async transferOwnership(credentials: any, externalAssetId: string, newOwnerEmail: string): Promise<void> {
     try {
-      const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive'],
-      });
+      const credType = this.detectCredentialType(credentials);
+      const auth = credType === 'service_account'
+        ? new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/drive'] })
+        : await this.createAuthClient(credentials);
 
       const drive = google.drive({ version: 'v3', auth });
 

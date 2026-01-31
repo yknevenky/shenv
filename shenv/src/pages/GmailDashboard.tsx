@@ -34,11 +34,15 @@ export function GmailDashboard() {
     const [hasMoreSenders, setHasMoreSenders] = useState(true);
     const [senderStats, setSenderStats] = useState<{ totalSenders: number; totalEmails: number } | null>(null);
 
+    // Cleanup suggestions - separate unfiltered list for top senders
+    const [topSenders, setTopSenders] = useState<GmailSender[]>([]);
+
     // Search / Sort / Filter
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [sortBy, setSortBy] = useState('emailCount');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [activeFilter, setActiveFilter] = useState<string>('all');
 
     // Focus mode
     const [focusMode, setFocusMode] = useState(false);
@@ -88,13 +92,13 @@ export function GmailDashboard() {
         return () => clearTimeout(debounceRef.current);
     }, [search]);
 
-    // Reload senders when search/sort changes
+    // Reload senders when search/sort/filter changes
     useEffect(() => {
         if (isConnected) {
             loadSenders(true);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [debouncedSearch, sortBy, sortOrder]);
+    }, [debouncedSearch, sortBy, sortOrder, activeFilter]);
 
     // Initial check
     useEffect(() => {
@@ -120,7 +124,18 @@ export function GmailDashboard() {
         await Promise.all([
             loadInboxStats(),
             loadSenders(true),
+            loadTopSenders(), // Load top 5 senders for cleanup suggestions separately
         ]);
+    };
+
+    const loadTopSenders = async () => {
+        try {
+            // Always fetch top 5 by volume, unfiltered
+            const response = await gmailApi.getSenders(5, 0, 'emailCount', 'desc', undefined, 'all');
+            setTopSenders(response.data.senders);
+        } catch (err) {
+            console.error('Failed to load top senders', err);
+        }
     };
 
     const loadInboxStats = async () => {
@@ -140,7 +155,7 @@ export function GmailDashboard() {
         setSendersLoading(true);
         try {
             const offset = reset ? 0 : (sendersPage + 1) * 20;
-            const response = await gmailApi.getSenders(20, offset, sortBy, sortOrder, debouncedSearch || undefined);
+            const response = await gmailApi.getSenders(20, offset, sortBy, sortOrder, debouncedSearch || undefined, activeFilter);
 
             if (reset) {
                 setSenders(response.data.senders);
@@ -463,9 +478,9 @@ export function GmailDashboard() {
                         )}
 
                         {/* Cleanup suggestions - hidden in focus mode */}
-                        {!focusMode && senders.length > 0 && (
+                        {!focusMode && topSenders.length > 0 && (
                             <CleanupSuggestions
-                                senders={senders}
+                                senders={topSenders}
                                 onReview={handleViewEmails}
                                 onDelete={handleSuggestionDelete}
                             />
@@ -490,6 +505,8 @@ export function GmailDashboard() {
                                 sortBy={sortBy}
                                 sortOrder={sortOrder}
                                 onSortChange={handleSortChange}
+                                activeFilter={activeFilter}
+                                onFilterChange={setActiveFilter}
                                 totalCount={senderStats?.totalSenders || 0}
                                 onScanInbox={() => setDiscoveryWizardOpen(true)}
                             />

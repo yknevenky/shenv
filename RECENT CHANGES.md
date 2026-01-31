@@ -1,5 +1,164 @@
 # Recent Changes
 
+## Jan 30, 2026 - Google Drive OAuth Integration & Drive Analytics
+
+### Backend Changes
+
+**Drive OAuth Service (`backend/src/services/drive-oauth-service.ts`)** - NEW FILE
+- Complete OAuth 2.0 flow for individual users (without Domain-Wide Delegation)
+- Key methods:
+  - `getAuthorizationUrl(userId)` - Generate OAuth URL with state parameter for CSRF protection
+  - `exchangeCodeForTokens(code)` - Exchange authorization code for access/refresh tokens
+  - `refreshAccessToken(refreshToken)` - Automatic token refresh when expired
+  - `getDriveClient(accessToken)` - Create authenticated Drive client
+  - `verifyToken(accessToken)` - Verify token and retrieve user info (email, name)
+  - `revokeToken(accessToken)` - Revoke token on disconnect
+- OAuth Scopes: `drive.readonly`, `drive.metadata.readonly`, `userinfo.email`, `userinfo.profile`
+- AES-256 encrypted token storage in `platform_credentials` table
+
+**Platform OAuth Endpoints (`backend/src/routes/platforms.ts`)** - 4 NEW ENDPOINTS
+1. `GET /api/platforms/google/oauth/url` - Generate OAuth authorization URL
+2. `POST /api/platforms/google/oauth/callback` - Handle OAuth callback, exchange code for tokens, store encrypted credentials
+3. `DELETE /api/platforms/google/oauth/disconnect` - Disconnect OAuth, revoke tokens, delete credentials
+4. `GET /api/platforms/google/oauth/status` - Check OAuth connection status (isConnected, email, authType)
+
+**Google Workspace Adapter (`backend/src/services/platform-adapters/google-workspace-adapter.ts`)** - MAJOR REFACTOR
+- **Dual-Mode Credential Support**: Now detects and handles both service account (DWD) and OAuth credentials
+- New methods:
+  - `detectCredentialType(credentials)` - Detect 'service_account' | 'oauth' | 'unknown'
+  - `createOAuthClient(credentials)` - Create OAuth2Client from stored OAuth tokens
+  - `createAuthClient(credentials)` - Factory method to create appropriate auth client based on credential type
+- Updated all methods to use `createAuthClient()`:
+  - `discoverAssets()` - Works with both credential types
+  - `getAssetDetails()` - Works with both credential types
+  - `getAssetPermissions()` - Works with both credential types
+  - `deleteAsset()` - Works with both (requires write scope for OAuth)
+  - `changeVisibility()` - Works with both (requires write scope for OAuth)
+  - `removePermission()` - Works with both (requires write scope for OAuth)
+  - `transferOwnership()` - Works with both (requires write scope for OAuth)
+- `discoverWorkspaceUsers()` - Returns empty array for OAuth users (DWD only)
+
+**Asset Analytics Endpoints (`backend/src/routes/assets.ts`)** - 5 NEW ENDPOINTS
+1. `GET /api/assets/analytics/types` - Asset type distribution (spreadsheet, document, presentation, etc.)
+2. `GET /api/assets/analytics/platforms` - Platform breakdown (google_workspace, microsoft_365, etc.)
+3. `GET /api/assets/analytics/permissions` - Permission statistics (total, avg per asset, high permission count)
+4. `GET /api/assets/analytics/risk` - Risk distribution (low, medium, high)
+5. `GET /api/assets/analytics/overview` - Comprehensive analytics (all metrics in one call)
+- All endpoints support optional `platform` query parameter for filtering
+
+**Asset Repository (`backend/src/db/repositories/asset.ts`)** - 4 NEW METHODS
+- `getTypeDistribution(userId, platform?)` - SQL GROUP BY assetType with COUNT
+- `getPlatformDistribution(userId)` - SQL GROUP BY platform with COUNT
+- `getPermissionStats(userId, platform?)` - Aggregate permission data (total, avg, max)
+- `getRiskDistribution(userId, platform?)` - SQL risk level breakdown (0-30 low, 31-60 medium, 61-100 high)
+- Updated 4 existing methods to accept optional `platform` parameter:
+  - `findOrphanedAssets(userId, platform?)`
+  - `findInactiveAssets(userId, platform?)`
+  - `findHighRiskAssets(userId, platform?)`
+  - `countByUser(userId, platform?)`
+
+**Environment Variables (`backend/.env.example`)** - UPDATED
+- Added `GOOGLE_CLIENT_ID` - OAuth client ID from Google Cloud Console
+- Added `GOOGLE_CLIENT_SECRET` - OAuth client secret
+- Added `GOOGLE_REDIRECT_URI` - OAuth callback URL (default: `http://localhost:3000/api/platforms/google/oauth/callback`)
+
+**Token Refresh Middleware (`backend/src/middleware/token-refresh.ts`)** - NEW FILE
+- Automatic OAuth token refresh before API calls (5-minute buffer before expiry)
+- Three exported functions:
+  - `refreshTokenIfNeeded(userId, platform)` - Main refresh logic with credential update
+  - `withTokenRefresh(userId, platform)` - Convenient wrapper for route handlers
+  - `checkTokenStatus(userId, platform)` - Check validity without refreshing (for UI warnings)
+- Security features:
+  - Automatic deactivation of old credentials after refresh
+  - No token logging
+  - Encrypted storage of refreshed tokens
+  - Error handling for revoked refresh tokens
+- Token lifecycle management:
+  - Access token: 1 hour expiry → Auto-refresh at 55 minutes
+  - Refresh token: 6 months expiry → User must re-authorize when expired
+
+**Asset Discovery Service (`backend/src/services/asset-discovery-service.ts`)** - UPDATED
+- Integrated token refresh middleware in 3 methods:
+  - `discoverAssets()` - Auto-refreshes before discovering Drive files
+  - `discoverWorkspaceUsers()` - Auto-refreshes before fetching workspace users
+  - `refreshAsset()` - Auto-refreshes before refreshing individual asset
+- Ensures fresh tokens for all Google API calls
+
+### Documentation
+
+**Drive OAuth Complete (`DRIVE_OAUTH_COMPLETE.md`)** - NEW FILE
+- Comprehensive documentation of entire OAuth implementation
+- Google Cloud Project setup instructions (OAuth client creation, consent screen, scopes, test users)
+- API endpoint documentation with curl examples
+- Security considerations (token encryption, state parameter, refresh token handling, scope limitations)
+- OAuth vs Service Account comparison
+- Testing checklist
+- Frontend implementation guide (pending)
+
+**Drive Analytics Implementation (`DRIVE_ANALYTICS_IMPLEMENTATION.md`)** - EXISTING FILE
+- Phase 1 documentation for analytics endpoints
+- API examples and response formats
+
+### Key Features Added
+
+1. **Dual-Mode Architecture** - System now supports two authentication modes:
+   - **Business Users**: Service Account with Domain-Wide Delegation → Full workspace access including Admin API
+   - **Individual Users**: Google OAuth 2.0 → Personal Drive access only
+
+2. **Google Drive OAuth Flow** - Complete OAuth 2.0 implementation:
+   - Authorization URL generation with CSRF protection
+   - Token exchange and secure storage
+   - Automatic token refresh
+   - Token revocation on disconnect
+   - User info retrieval (email, name)
+
+3. **Drive Analytics** - 5 comprehensive analytics endpoints:
+   - Asset type distribution
+   - Platform breakdown
+   - Permission statistics
+   - Risk distribution
+   - All-in-one overview
+
+4. **Platform Filtering** - All asset queries now support platform filtering for multi-cloud environments
+
+5. **Security** - AES-256 encrypted OAuth token storage, state parameter for CSRF protection, automatic token refresh
+
+### Technical Improvements
+
+- **Platform-Agnostic Design**: GoogleWorkspaceAdapter now handles both credential types transparently
+- **Automatic Token Refresh**: OAuth tokens auto-refresh when expired (using refresh token)
+- **Credential Type Detection**: Smart detection of service account vs OAuth credentials
+- **Unified Auth Factory**: Single `createAuthClient()` method creates appropriate client for any credential type
+- **Error Handling**: OAuth users gracefully handled for DWD-only features (workspace user discovery)
+
+### Limitations
+
+**OAuth Users Cannot:**
+- Discover workspace users (requires Admin API + DWD)
+- Access other users' files (only personal Drive)
+- Perform domain-wide governance actions
+
+**OAuth Users CAN:**
+- Discover their own Drive files (full read access)
+- View file permissions
+- Analyze risk scores
+- Delete files (with write scope)
+- Modify permissions (with write scope)
+
+### Next Steps (Pending)
+
+**Phase 4:** Token refresh middleware to auto-refresh before API calls
+**Phase 5:** Frontend UI implementation
+- Drive connection page with OAuth flow
+- Drive dashboard with analytics visualizations
+- Mode selector (Business vs Individual)
+- Asset list with filtering and search
+- Permission viewer for individual files
+
+**Phase 6:** End-to-end testing
+
+---
+
 ## Jan 27, 2026 - Enhanced Gmail Sender Metadata & Unsubscribe Feature
 
 ### Backend Changes

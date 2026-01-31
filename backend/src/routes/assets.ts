@@ -344,4 +344,178 @@ app.get('/stats/summary', async (c) => {
   }
 });
 
+/**
+ * GET /api/assets/analytics/types
+ * Get asset type distribution
+ */
+app.get('/analytics/types', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: true, message: 'Unauthorized' }, 401);
+    }
+
+    const platform = c.req.query('platform');
+    const typeDistribution = await AssetRepository.getTypeDistribution(user.id, platform);
+
+    return c.json({
+      success: true,
+      data: {
+        types: typeDistribution,
+        total: typeDistribution.reduce((sum, item) => sum + item.count, 0),
+      },
+    });
+  } catch (error) {
+    logger.error('Error fetching type distribution', { error });
+    return c.json({
+      error: true,
+      message: 'Failed to fetch type distribution',
+    }, 500);
+  }
+});
+
+/**
+ * GET /api/assets/analytics/platforms
+ * Get platform distribution
+ */
+app.get('/analytics/platforms', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: true, message: 'Unauthorized' }, 401);
+    }
+
+    const platformDistribution = await AssetRepository.getPlatformDistribution(user.id);
+
+    return c.json({
+      success: true,
+      data: {
+        platforms: platformDistribution,
+        total: platformDistribution.reduce((sum, item) => sum + item.count, 0),
+      },
+    });
+  } catch (error) {
+    logger.error('Error fetching platform distribution', { error });
+    return c.json({
+      error: true,
+      message: 'Failed to fetch platform distribution',
+    }, 500);
+  }
+});
+
+/**
+ * GET /api/assets/analytics/permissions
+ * Get permission analytics
+ */
+app.get('/analytics/permissions', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: true, message: 'Unauthorized' }, 401);
+    }
+
+    const platform = c.req.query('platform');
+    const permissionStats = await AssetRepository.getPermissionStats(user.id, platform);
+
+    return c.json({
+      success: true,
+      data: permissionStats,
+    });
+  } catch (error) {
+    logger.error('Error fetching permission stats', { error });
+    return c.json({
+      error: true,
+      message: 'Failed to fetch permission statistics',
+    }, 500);
+  }
+});
+
+/**
+ * GET /api/assets/analytics/risk
+ * Get risk distribution
+ */
+app.get('/analytics/risk', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: true, message: 'Unauthorized' }, 401);
+    }
+
+    const platform = c.req.query('platform');
+    const riskDistribution = await AssetRepository.getRiskDistribution(user.id, platform);
+
+    return c.json({
+      success: true,
+      data: {
+        distribution: riskDistribution,
+        total: riskDistribution.reduce((sum, item) => sum + item.count, 0),
+      },
+    });
+  } catch (error) {
+    logger.error('Error fetching risk distribution', { error });
+    return c.json({
+      error: true,
+      message: 'Failed to fetch risk distribution',
+    }, 500);
+  }
+});
+
+/**
+ * GET /api/assets/analytics/overview
+ * Get comprehensive analytics overview
+ */
+app.get('/analytics/overview', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ error: true, message: 'Unauthorized' }, 401);
+    }
+
+    const platform = c.req.query('platform');
+
+    // Fetch all analytics in parallel
+    const [
+      totalAssets,
+      typeDistribution,
+      platformDistribution,
+      permissionStats,
+      riskDistribution,
+      orphanedAssets,
+      inactiveAssets,
+      highRiskAssets,
+    ] = await Promise.all([
+      AssetRepository.countByUser(user.id, platform),
+      AssetRepository.getTypeDistribution(user.id, platform),
+      AssetRepository.getPlatformDistribution(user.id),
+      AssetRepository.getPermissionStats(user.id, platform),
+      AssetRepository.getRiskDistribution(user.id, platform),
+      AssetRepository.findOrphanedAssets(user.id, platform),
+      AssetRepository.findInactiveAssets(user.id, platform),
+      AssetRepository.findHighRiskAssets(user.id, 70, platform),
+    ]);
+
+    return c.json({
+      success: true,
+      data: {
+        summary: {
+          totalAssets,
+          orphanedCount: orphanedAssets.length,
+          inactiveCount: inactiveAssets.length,
+          highRiskCount: highRiskAssets.length,
+        },
+        typeDistribution,
+        platformDistribution,
+        permissionStats,
+        riskDistribution,
+      },
+    });
+  } catch (error) {
+    logger.error('Error fetching analytics overview', { error });
+    return c.json({
+      error: true,
+      message: 'Failed to fetch analytics overview',
+    }, 500);
+  }
+});
+
 export default app;

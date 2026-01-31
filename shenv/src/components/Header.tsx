@@ -17,10 +17,22 @@ export function Header() {
 
           <nav className="flex items-center gap-6">
             <Link
-              to="/"
+              to="/dashboard"
               className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
             >
               Sheets
+            </Link>
+            <Link
+              to="/drive"
+              className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+            >
+              Drive
+            </Link>
+            <Link
+              to="/gmail"
+              className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+            >
+              Gmail
             </Link>
           </nav>
         </div>
