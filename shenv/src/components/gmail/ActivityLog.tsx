@@ -7,7 +7,7 @@ const MAX_ENTRIES = 20;
 export interface ActivityEntry {
     id: string;
     timestamp: string;
-    action: 'scan' | 'delete' | 'bulk_delete' | 'revoke' | 'connect';
+    action: 'scan' | 'delete' | 'bulk_delete' | 'revoke' | 'connect' | 'unsubscribe';
     details: string;
 }
 
@@ -52,6 +52,7 @@ const ACTION_LABELS: Record<ActivityEntry['action'], string> = {
     bulk_delete: 'Bulk Delete',
     revoke: 'Revoke',
     connect: 'Connect',
+    unsubscribe: 'Unsubscribe',
 };
 
 const ACTION_COLORS: Record<ActivityEntry['action'], string> = {
@@ -60,6 +61,7 @@ const ACTION_COLORS: Record<ActivityEntry['action'], string> = {
     bulk_delete: 'bg-red-50 text-red-700',
     revoke: 'bg-amber-50 text-amber-700',
     connect: 'bg-green-50 text-green-700',
+    unsubscribe: 'bg-purple-50 text-purple-700',
 };
 
 export function ActivityLog() {

@@ -11,6 +11,7 @@ import { GmailAuthSuccess } from './pages/GmailAuthSuccess';
 import { GmailAuthError } from './pages/GmailAuthError';
 import DriveDashboard from './pages/DriveDashboard';
 import DriveAuthCallback from './pages/DriveAuthCallback';
+import AssetsPage from './pages/AssetsPage';
 import Signin from './pages/Signin';
 import Signup from './pages/Signup';
 
@@ -43,7 +44,7 @@ function App() {
             path="/"
             element={
               <ProtectedRoute>
-                <Navigate to="/dashboard" replace />
+                <Navigate to="/assets" replace />
               </ProtectedRoute>
             }
           />
@@ -100,6 +101,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <DriveAuthCallback />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/assets"
+            element={
+              <ProtectedRoute>
+                <AssetsPage />
               </ProtectedRoute>
             }
           />

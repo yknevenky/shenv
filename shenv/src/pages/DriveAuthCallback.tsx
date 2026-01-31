@@ -40,9 +40,9 @@ export default function DriveAuthCallback() {
         setStatus('success');
         setUserInfo({ email: result.email, name: result.name });
 
-        // Redirect to Drive dashboard after 2 seconds
+        // Redirect to Assets page after 2 seconds
         setTimeout(() => {
-          navigate('/drive');
+          navigate('/assets');
         }, 2000);
       } catch (err: any) {
         console.error('OAuth callback failed:', err);
@@ -95,7 +95,7 @@ export default function DriveAuthCallback() {
                 <p className="text-gray-500">{userInfo?.email}</p>
               </div>
               <p className="mt-4 text-center text-sm text-gray-600">
-                Redirecting to your Drive dashboard...
+                Redirecting to your Assets...
               </p>
             </div>
           </div>
@@ -123,10 +123,10 @@ export default function DriveAuthCallback() {
             </div>
             <div className="mt-6">
               <button
-                onClick={() => navigate('/drive')}
+                onClick={() => navigate('/assets')}
                 className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
-                Go to Drive Dashboard
+                Go to Assets
               </button>
             </div>
           </div>

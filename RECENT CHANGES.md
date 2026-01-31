@@ -1,5 +1,327 @@
 # Recent Changes
 
+## Jan 31, 2026 - Unified Assets Page with Drive + Gmail Integration
+
+### Major Features
+
+**Unified Assets Experience**
+- New primary landing page at `/assets` replacing fragmented Drive/Gmail/Sheets navigation
+- Single interface for all workspace assets (Drive files, Gmail senders, future: Email messages, Sheets)
+- Consolidated search, filtering, and analytics across all asset types
+- Unified risk scoring (0-100) consistent across platforms
+- Smart onboarding with automatic mode detection (Personal OAuth vs Business Service Account)
+
+### New Files (7 frontend + 1 backend)
+
+**Frontend - Unified Asset System:**
+- `shenv/src/types/assets.ts` — Unified asset types: BaseAsset, DriveFileAsset, EmailSenderAsset, EmailMessageAsset + type guards + ASSET_TYPE_INFO/RISK_LEVEL_INFO constants
+- `shenv/src/services/unified-assets.ts` — Unified asset service aggregating Drive + Gmail APIs with 6 methods (getConnectionStatus, getAssets, getStats, discoverAssets, getAssetDetails, performAction)
+- `shenv/src/components/assets/UnifiedAssetList.tsx` — Complete asset list with search, filter (type, risk), sort (5 fields), pagination, quick actions menu (View, Refresh, Unsubscribe, Delete)
+- `shenv/src/components/assets/UnifiedAssetDetails.tsx` — Modal showing full asset details with type-specific sections (Drive: file info + permissions, Gmail: sender info + verification + unsubscribe)
+- `shenv/src/components/assets/UnifiedAnalytics.tsx` — Combined analytics dashboard with 4 stat cards, risk distribution chart, quick action cards
+- `shenv/src/components/assets/index.ts` — Component exports
+- `shenv/src/pages/AssetsPage.tsx` — Main assets page with onboarding, view toggle (Overview/List), connection status, discover button
+
+**Backend - OAuth Flow Fix:**
+- `backend/src/routes/platforms.ts` — Added public GET endpoint for OAuth callback (no auth required), bridges Google callback to frontend
+
+### Updated Files (5 files)
+
+**Frontend:**
+- `shenv/src/App.tsx` — Changed default route from `/dashboard` to `/assets`, added /assets route
+- `shenv/src/components/Header.tsx` — Redesigned navigation: Assets primary (blue badge), legacy pages secondary (Sheets/Drive/Gmail), added Logout button
+- `shenv/src/pages/DriveAuthCallback.tsx` — Redirects to /assets instead of /drive after OAuth success
+
+**Backend:**
+- `backend/src/routes/platforms.ts` — Added public GET /api/platforms/google/oauth/callback endpoint before auth middleware for Google OAuth redirect handling
+- `backend/.env` — Added GOOGLE_DRIVE_OAUTH_REDIRECT_URI pointing to backend callback endpoint
+
+### Unified Assets Features
+
+**Asset Types Supported:**
+- Drive Files (drive_file): Google Drive documents, spreadsheets, presentations with permission tracking
+- Email Senders (email_sender): Gmail senders with email count, attachments, verification, unsubscribe
+- Email Messages (email_message): Individual emails (type defined, implementation pending)
+
+**Filtering & Search:**
+- Search across asset names
+- Filter by asset type (Drive files, Email senders)
+- Filter by risk level (High 61-100, Medium 31-60, Low 0-30)
+- Extended filters: verification status, sharing status, activity status, unsubscribe capability
+- Sort by 5 fields: risk score, last activity, created date, name, owner (asc/desc toggle)
+
+**Analytics:**
+- Total asset count across all types
+- Breakdown by type (Drive files, Email senders, Email messages)
+- Risk distribution with percentages and color bars
+- High-risk asset count
+- Recent activity tracking (7 days)
+- Connection status (OAuth/Service Account, email, capabilities)
+
+**Actions:**
+- View asset details in modal
+- Refresh asset data from source
+- Delete asset (Drive: delete file, Gmail: delete all messages from sender)
+- Unsubscribe from email sender (if unsubscribe link available)
+- Open asset in new tab (Google Drive or Gmail)
+
+**Status Badges:**
+- Drive: Public, Orphaned, Inactive, Domain Shared
+- Gmail: Unverified (SPF/DKIM failed), Subscribable, Unsubscribed
+
+### OAuth Flow Fix
+
+**Problem:** OAuth callback required JWT authentication, but Google redirects happen before user has token
+
+**Solution:** Added public GET endpoint that bridges backend OAuth callback to frontend
+1. Frontend requests OAuth URL from backend
+2. User authorizes on Google consent screen
+3. Google redirects to backend: `http://localhost:3000/api/platforms/google/oauth/callback?code=...`
+4. Backend GET endpoint (no auth) receives code
+5. Backend redirects to frontend: `http://localhost:5173/drive/auth-callback?code=...`
+6. Frontend calls backend POST endpoint with code (JWT auth required)
+7. Backend exchanges code for tokens, stores encrypted in database
+8. Frontend redirects to /assets page
+
+**Why This Works:**
+- Google Cloud Console only needs backend URL configured
+- Backend acts as bridge between Google and frontend
+- No CORS issues (backend handles redirect)
+- Frontend maintains JWT authentication for token storage
+
+### Navigation Changes
+
+**Before:**
+- Default route: `/dashboard` (Sheets)
+- Flat navigation: Sheets, Drive, Gmail
+
+**After:**
+- Default route: `/assets` (Unified Assets)
+- Hierarchical navigation:
+  - **Primary:** Assets (blue badge when active)
+  - **Secondary:** Sheets, Drive, Gmail (gray, legacy pages)
+  - **Utility:** Logout button
+
+### Implementation Details
+
+**Unified Data Model:**
+```typescript
+interface BaseAsset {
+  id: string;
+  type: 'drive_file' | 'email_sender' | 'email_message';
+  platform: Platform;
+  name: string;
+  owner: string;
+  ownerEmail?: string;
+  riskScore: number; // 0-100
+  riskLevel: 'low' | 'medium' | 'high';
+  createdAt: string;
+  lastActivityAt: string;
+  lastSyncedAt: string;
+  url?: string;
+}
+
+// Type-specific metadata extends BaseAsset
+type UnifiedAsset = DriveFileAsset | EmailSenderAsset | EmailMessageAsset;
+```
+
+**Service Architecture:**
+- `unifiedAssetApi` aggregates data from `driveAssetsApi` and Gmail API
+- Transforms platform-specific data into unified format
+- Single API surface for frontend components
+- Platform connection detection (OAuth vs Service Account)
+
+**Risk Scoring:**
+- Drive: Public access (40), domain sharing (25), external users (20), orphaned (20), high permissions (10), inactive (10)
+- Gmail: Unverified sender (high), high volume (50+ emails), attachment count
+- Consistent 0-100 scale with low/medium/high levels
+
+### Breaking Changes
+
+1. Default route changed from `/dashboard` to `/assets`
+2. Navigation structure redesigned (Assets primary, legacy pages secondary)
+
+### TODO
+
+1. **Google Cloud Console Setup:**
+   - Add redirect URI: `http://localhost:3000/api/platforms/google/oauth/callback`
+   - Save and wait 5 minutes for propagation
+
+2. **Server Restart:**
+   - Restart backend to pick up GOOGLE_DRIVE_OAUTH_REDIRECT_URI from .env
+
+### Next Steps
+
+- Backend unified asset endpoints (currently frontend aggregates from existing APIs)
+- Real-time asset updates with WebSocket or polling
+- Bulk operations (select multiple assets for batch actions)
+- Advanced filters (date ranges, custom risk thresholds)
+- Export to CSV/PDF reports
+- Asset sharing workflows
+- Scheduled discovery jobs
+
+---
+
+## Jan 31, 2026 - Smart Onboarding Based on User Email Domain
+
+### New Files
+
+**useUserType Hook (`shenv/src/hooks/useUserType.ts`)**
+- Detects user type from email domain (individual vs business)
+- Recognizes 20+ free email domains (Gmail, Yahoo, Outlook, etc.)
+- Exports: `useUserType()` hook, `detectUserType()`, `getEmailDomain()`, `isPersonalEmailDomain()`
+- Returns: userType, email, domain, isIndividual, isBusiness
+
+**BusinessOnboarding Component (`shenv/src/components/onboarding/BusinessOnboarding.tsx`)**
+- 6-step guided wizard for Google Workspace admins
+- Steps: Welcome → Cloud Project → Service Account → DWD Setup → Upload Key → Success
+- Visual progress indicator with step numbers
+- External links to Google Cloud Console and Admin Console
+- Copy-to-clipboard buttons for OAuth scopes
+- Skip option for later setup
+- Automatic localStorage persistence
+
+**IndividualOnboarding Component (`shenv/src/components/onboarding/IndividualOnboarding.tsx`)**
+- Streamlined OAuth flow for personal/Gmail users
+- Feature overview with checkmark list
+- Security and permissions info cards
+- Single "Connect with Google" button
+- Option to switch to Business Mode
+
+### Updated Files
+
+**DriveDashboard Page (`shenv/src/pages/DriveDashboard.tsx`)**
+- Integrated useUserType hook for automatic mode detection
+- Shows onboarding for first-time (unconnected) users
+- Mode toggle (Personal/Business) in onboarding header
+- Persists onboarding state in localStorage
+- "Get Started" button for users who previously skipped
+
+### Smart Onboarding Flow
+
+1. User signs in → Email stored in localStorage
+2. User visits /drive → Email domain detected automatically
+3. Gmail/free email → Shows Individual Onboarding (OAuth)
+4. Custom domain → Shows Business Onboarding (Service Account wizard)
+5. User can manually switch modes via toggle buttons
+6. Onboarding completion/skip persisted across sessions
+
+### User Type Detection
+
+**Individual (Personal) domains detected:**
+gmail.com, googlemail.com, yahoo.com, yahoo.co.uk, yahoo.co.in, hotmail.com, outlook.com, live.com, msn.com, icloud.com, me.com, mac.com, aol.com, protonmail.com, proton.me, zoho.com, mail.com, gmx.com, gmx.net, yandex.com, tutanota.com, fastmail.com
+
+**Business (Custom) domains:**
+Any domain not in the free email list (e.g., @company.com)
+
+---
+
+## Jan 31, 2026 - Drive Frontend Completion (Asset List, Details Modal, Mode Selector)
+
+### Frontend Changes
+
+**DriveAssetList Component (`shenv/src/components/drive/DriveAssetList.tsx`)** - NEW FILE
+- Complete file list view with search, filter, sort, and pagination
+- 7 filter options: All, High Risk, Medium Risk, Low Risk, Orphaned, Inactive, Public Access
+- 5 sort options: Risk Score, Permissions, Last Modified, Created, Name
+- File type icons (Spreadsheet, Document, Image, File) using lucide-react
+- Risk score badges with color coding (High=red, Medium=yellow, Low=green)
+- Permission count and status badges (Orphaned, Inactive)
+- Select all/individual selection with sticky action bar
+- Empty state with "Discover Files" CTA
+- Load more pagination
+
+**AssetDetailsModal Component (`shenv/src/components/drive/AssetDetailsModal.tsx`)** - NEW FILE
+- Full file details view in modal overlay
+- Risk score card with color-coded severity and score display
+- Warning banners for security issues:
+  - Public access (anyone with link) - red
+  - Domain-wide access - orange
+  - Orphaned files (owner no longer exists) - yellow
+  - Inactive files (6+ months no activity) - gray
+- File metadata section: Type, Owner, Created, Modified, Last Synced, Permissions
+- Complete permissions list with:
+  - Permission type icons (User, Group, Domain, Anyone)
+  - Role badges (Owner, Writer, Commenter, Reader)
+  - Email/display name display
+- Refresh button to update asset data from Google Drive
+- "Open in Drive" external link button
+- Keyboard escape to close modal
+
+**ConnectDrive Component (`shenv/src/components/drive/ConnectDrive.tsx`)** - REWRITTEN
+- Complete rewrite with dual-mode authentication selector
+- Mode selection screen with Personal vs Business cards:
+  - Personal: Blue theme, OAuth 2.0, individual file access
+  - Business: Purple theme, Service Account, workspace-wide access
+- Personal Mode: OAuth 2.0 flow with Google sign-in button
+- Business Mode: Service Account JSON upload with validation
+  - File type validation (JSON only)
+  - Service account structure validation (type, client_email, private_key)
+  - Requirements checklist for setting up service account
+- Connected state shows:
+  - Auth type badge with color coding
+  - Connected email
+  - Mode indicator (Personal/Business)
+- Proper disconnect handling for both authentication modes
+
+**DriveDashboard Page (`shenv/src/pages/DriveDashboard.tsx`)** - UPDATED
+- View toggle between Analytics and Files tabs
+- Integrated DriveAssetList component
+- Asset details modal integration
+- Search/filter/sort state management with 300ms debouncing
+- Pagination with "Load More" functionality
+- Discovery button in Files view
+- Auth type badge in header (Business Mode / Personal Mode)
+
+**ActivityLog Component (`shenv/src/components/gmail/ActivityLog.tsx`)** - UPDATED
+- Added 'unsubscribe' action type to ActivityEntry interface
+- Added 'Unsubscribe' label and purple color styling
+
+**GmailDashboard Page (`shenv/src/pages/GmailDashboard.tsx`)** - FIXED
+- Fixed useRef typing issue (added undefined initial value)
+
+### Bug Fixes
+
+1. **TypeScript Errors Fixed:**
+   - AssetDetailsModal: Added Record<string, string> type for riskColorClasses
+   - ConnectDrive: Removed unused X import from lucide-react
+   - DriveDashboard: Removed unused driveAnalyticsApi import
+   - GmailDashboard: Fixed useRef generic type with proper initialization
+   - ActivityLog: Added 'unsubscribe' to action union type
+
+### Key Features Added
+
+1. **Complete Asset Management UI**
+   - View all Drive files with rich metadata display
+   - Filter by risk level, sharing status, and activity
+   - Sort by multiple criteria with ascending/descending toggle
+   - Paginated loading for large file sets
+
+2. **Detailed File Analysis**
+   - View permissions and sharing settings
+   - Risk breakdown with actionable warning messages
+   - Direct links to Google Drive files
+
+3. **Dual-Mode Authentication**
+   - Personal Mode: OAuth 2.0 for individual users
+   - Business Mode: Service Account upload for workspace admins
+   - Visual distinction between modes with color theming
+
+4. **Improved UX**
+   - Debounced search to reduce API calls
+   - Loading states and skeleton loaders
+   - Empty states with helpful CTAs
+   - Keyboard navigation (Escape to close modals)
+   - Responsive design for all screen sizes
+
+### Progress
+
+**Drive Feature: 100% Complete**
+- Backend: 100% ✅
+- Frontend: 100% ✅
+
+---
+
 ## Jan 30, 2026 - Google Drive OAuth Integration & Drive Analytics
 
 ### Backend Changes

@@ -644,6 +644,31 @@ docker compose logs     # View logs
 - [x] Focus mode toggle
 - [x] Data freshness indicators
 
+### ✅ Frontend - Drive Management (100%)
+- [x] Drive OAuth callback page
+- [x] ConnectDrive component with dual-mode selector
+- [x] Personal Mode (OAuth 2.0) authentication flow
+- [x] Business Mode (Service Account) upload flow
+- [x] DriveAnalytics dashboard (4 stat cards, type distribution, risk distribution)
+- [x] DriveAssetList (search, sort, 7 filters, pagination)
+- [x] AssetDetailsModal (permissions, risk warnings, file metadata)
+- [x] View toggle (Analytics vs Files)
+
+### ✅ Unified Assets Page (100%)
+- [x] Unified asset types and data model (BaseAsset, type guards)
+- [x] Unified asset service aggregating Drive + Gmail APIs
+- [x] UnifiedAssetList component (search, filter, sort, pagination)
+- [x] UnifiedAssetDetails modal for all asset types
+- [x] UnifiedAnalytics dashboard with combined stats
+- [x] AssetsPage with smart onboarding integration
+- [x] Navigation redesign (Assets primary, legacy secondary)
+- [x] OAuth flow fix (public GET callback endpoint)
+- [x] Default route changed to /assets
+- [x] Risk scoring unified across platforms (0-100 scale)
+- [x] Type-specific badges and status indicators
+- [x] Quick actions (View, Refresh, Delete, Unsubscribe)
+- [x] Connection status monitoring (OAuth/Service Account)
+
 ### ⚠️ Frontend - Sheets Governance (Partial)
 - [x] Authentication pages (Signin/Signup)
 - [x] Dashboard with service account upload
@@ -724,23 +749,30 @@ https://www.googleapis.com/auth/gmail.metadata (for sender analysis)
 ### Current System State
 1. **Sheets Backend is 100% complete** - All 27 Sheets endpoints working
 2. **Gmail Backend is 100% complete** - All 15+ Gmail endpoints working
-3. **Database is set up** - PostgreSQL in Docker with 11 tables (8 Sheets + 3 Gmail)
-4. **Gmail Frontend is 100% complete** - Full sender management UI with 12 new components
-5. **Sheets Frontend is basic** - Only authentication and basic sheet list
-6. **No background jobs** - Manual triggering only
-7. **No automated tests** - Only manual testing done
+3. **Drive Backend is 100% complete** - OAuth + Service Account dual-mode, analytics, asset management
+4. **Unified Assets is 100% complete** - Frontend aggregates Drive + Gmail, unified UI at /assets
+5. **Database is set up** - PostgreSQL in Docker with 11+ tables
+6. **Gmail Frontend is 100% complete** - Full sender management UI with 12 components
+7. **Drive Frontend is 100% complete** - Asset list, details modal, dual-mode auth selector
+8. **Unified Assets Frontend is 100% complete** - Asset list, details modal, analytics, smart onboarding
+9. **Sheets Frontend is basic** - Only authentication and basic sheet list
+10. **No background jobs** - Manual triggering only
+11. **No automated tests** - Only manual testing done
 
 ### When Working on This Project
-1. **Sheets backend is done** - Focus on Sheets frontend or background jobs
-2. **Gmail backend & frontend are done** - Focus on enhancements or automation
-3. **Use the repositories** - Don't write raw SQL
-4. **Follow TypeScript strictly** - Use inferred types from Drizzle
-5. **Test with real Google APIs** - Service account (Sheets) or OAuth (Gmail) required
-6. **Check existing code first** - Most patterns already implemented
-7. **Refer to API_ENDPOINTS.md** - Complete Sheets API reference
-8. **Refer to IMPLEMENTATION_SUMMARY.md** - Detailed Sheets implementation guide
-9. **Gmail uses OAuth 2.0** - Different auth flow than Sheets (service account)
-10. **Rate limiting is critical** - Gmail API has strict quota limits (50 calls/sec)
+1. **Unified Assets is the primary landing page** - Default route is /assets, not /dashboard
+2. **Drive is fully complete** - Backend + Frontend with dual auth modes
+3. **Gmail is fully complete** - Backend + Frontend with sender management
+4. **Unified Assets is fully complete** - Frontend-only, aggregates existing Drive + Gmail APIs
+5. **Sheets backend is done** - Focus on Sheets frontend or background jobs
+6. **Use the repositories** - Don't write raw SQL
+7. **Follow TypeScript strictly** - Use inferred types from Drizzle
+8. **Test with real Google APIs** - Service account or OAuth required
+9. **Check existing code first** - Most patterns already implemented
+10. **Refer to API_ENDPOINTS.md** - Complete API reference
+11. **Drive supports dual-mode** - OAuth for personal, Service Account for business
+12. **Rate limiting is critical** - Gmail API has strict quota limits (50 calls/sec)
+13. **OAuth flow uses backend bridge** - GET callback (no auth) redirects to frontend
 
 ### Code Style (Already Established)
 - Functional components with hooks
@@ -757,7 +789,7 @@ https://www.googleapis.com/auth/gmail.metadata (for sender analysis)
 
 - [API_ENDPOINTS.md](backend/API_ENDPOINTS.md) - Complete Sheets API documentation
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Sheets implementation guide
-- [LAST COMMIT.md](LAST%20COMMIT.md) - Latest commit summary (Gmail metadata enhancements)
+- [LAST COMMIT.md](LAST%20COMMIT.md) - Latest commit summary (Unified Assets + OAuth Flow Fix)
 - [RECENT CHANGES.md](RECENT%20CHANGES.md) - Historical changelog
 - [README.md](README.md) - Project overview and setup instructions
 - [NEXT STEPS.MD](NEXT%20STEPS.MD) - Original Sheets PRD

@@ -15,7 +15,43 @@ import { encrypt } from '../utils/encryption.js';
 
 const app = new Hono<{ Variables: AuthVariables }>();
 
-// Apply authentication middleware to all routes
+// ==================== PUBLIC ENDPOINTS (NO AUTH) ====================
+
+/**
+ * GET /api/platforms/google/oauth/callback
+ * Handle Google OAuth redirect (no auth required - this is the callback from Google)
+ * Redirects to frontend with code
+ */
+app.get('/google/oauth/callback', async (c) => {
+  try {
+    const code = c.req.query('code');
+    const error = c.req.query('error');
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    if (error) {
+      // Redirect to frontend with error
+      logger.error('Google OAuth error', { error });
+      return c.redirect(`${frontendUrl}/drive/auth-callback?error=${encodeURIComponent(error)}`);
+    }
+
+    if (!code) {
+      logger.error('No code received from Google');
+      return c.redirect(`${frontendUrl}/drive/auth-callback?error=no_code`);
+    }
+
+    // Redirect to frontend with code
+    logger.info('Redirecting to frontend with OAuth code');
+    return c.redirect(`${frontendUrl}/drive/auth-callback?code=${encodeURIComponent(code)}`);
+  } catch (error: any) {
+    logger.error('OAuth callback redirect failed', { error });
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    return c.redirect(`${frontendUrl}/drive/auth-callback?error=callback_failed`);
+  }
+});
+
+// ==================== AUTHENTICATED ENDPOINTS ====================
+
+// Apply authentication middleware to all routes below
 app.use('*', jwtMiddleware, attachUser);
 
 /**
@@ -265,7 +301,7 @@ app.get('/google/oauth/url', async (c) => {
 
 /**
  * POST /api/platforms/google/oauth/callback
- * Handle Google Drive OAuth callback
+ * Handle Google Drive OAuth callback (exchange code for tokens)
  */
 app.post('/google/oauth/callback', async (c) => {
   try {

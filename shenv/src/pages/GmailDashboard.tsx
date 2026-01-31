@@ -84,7 +84,7 @@ export function GmailDashboard() {
     const [refreshing, setRefreshing] = useState(false);
 
     // Debounce search
-    const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     useEffect(() => {
         debounceRef.current = setTimeout(() => {
             setDebouncedSearch(search);
