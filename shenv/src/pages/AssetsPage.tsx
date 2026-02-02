@@ -5,7 +5,12 @@
 
 import { useState, useEffect } from 'react';
 import { Building2, User, LayoutGrid, List, RefreshCw, Loader2 } from 'lucide-react';
-import { UnifiedAssetList, UnifiedAssetDetails, UnifiedAnalytics } from '../components/assets';
+import {
+  UnifiedAssetList,
+  UnifiedAssetDetails,
+  UnifiedAnalytics,
+  BatchActionsPanel,
+} from '../components/assets';
 import { BusinessOnboarding, IndividualOnboarding } from '../components/onboarding';
 import { unifiedAssetApi } from '../services/unified-assets';
 import { useUserType } from '../hooks/useUserType';
@@ -274,6 +279,19 @@ export default function AssetsPage() {
       {/* Connected State */}
       {connection?.isConnected ? (
         <>
+          {/* Batch Actions Panel - Show on Analytics view */}
+          {viewMode === 'analytics' && (
+            <div className="mb-6">
+              <BatchActionsPanel
+                onActionClick={(actionType, assetIds) => {
+                  console.log('Batch action:', actionType, assetIds);
+                  // TODO: Implement batch action handlers
+                  alert(`Batch action "${actionType}" for ${assetIds.length} assets`);
+                }}
+              />
+            </div>
+          )}
+
           {/* Analytics View */}
           {viewMode === 'analytics' && (
             <UnifiedAnalytics onDiscoverAssets={handleDiscoverAssets} />

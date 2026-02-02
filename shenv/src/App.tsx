@@ -12,6 +12,12 @@ import { GmailAuthError } from './pages/GmailAuthError';
 import DriveDashboard from './pages/DriveDashboard';
 import DriveAuthCallback from './pages/DriveAuthCallback';
 import AssetsPage from './pages/AssetsPage';
+import ScanQueuePage from './pages/ScanQueuePage';
+import ProgressPage from './pages/ProgressPage';
+import OrganizationPage from './pages/OrganizationPage';
+import UserDetailPage from './pages/UserDetailPage';
+import DepartmentDetailPage from './pages/DepartmentDetailPage';
+import ComplianceReportPage from './pages/ComplianceReportPage';
 import Signin from './pages/Signin';
 import Signup from './pages/Signup';
 
@@ -109,6 +115,54 @@ function App() {
             element={
               <ProtectedRoute>
                 <AssetsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/scans/queue"
+            element={
+              <ProtectedRoute>
+                <ScanQueuePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/progress"
+            element={
+              <ProtectedRoute>
+                <ProgressPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organization"
+            element={
+              <ProtectedRoute>
+                <OrganizationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organization/users/:email"
+            element={
+              <ProtectedRoute>
+                <UserDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organization/departments/:department"
+            element={
+              <ProtectedRoute>
+                <DepartmentDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organization/compliance"
+            element={
+              <ProtectedRoute>
+                <ComplianceReportPage />
               </ProtectedRoute>
             }
           />

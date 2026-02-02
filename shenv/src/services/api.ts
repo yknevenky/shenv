@@ -82,8 +82,8 @@ export async function healthCheck(): Promise<{ ok: boolean }> {
  * Auth API
  */
 export const authApi = {
-  signup: async (email: string, password: string) => {
-    const response = await apiClient.post('/auth/signup', { email, password });
+  signup: async (email: string, password: string, tier?: 'individual_free' | 'individual_paid' | 'business') => {
+    const response = await apiClient.post('/auth/signup', { email, password, tier });
     return response.data;
   },
 

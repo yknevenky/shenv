@@ -33,11 +33,35 @@ export const credentialTypeEnum = pgEnum('credential_type', [
   'other'             // Other authentication methods
 ]);
 
+// User tier (individual vs business)
+export const userTierEnum = pgEnum('user_tier', [
+  'individual_free',   // Free tier with queue
+  'individual_paid',   // Paid individual ($29/mo)
+  'business'           // Business admin
+]);
+
+// Scan job status
+export const scanJobStatusEnum = pgEnum('scan_job_status', [
+  'queued',      // Waiting in queue
+  'processing',  // Currently scanning
+  'completed',   // Successfully completed
+  'failed',      // Failed with error
+  'cancelled'    // Cancelled by user
+]);
+
+// Scan scope
+export const scanScopeEnum = pgEnum('scan_scope', [
+  'quick',        // Public assets only (free tier)
+  'full',         // All assets (paid tier)
+  'organization'  // Full org scan (business tier)
+]);
+
 // ==================== USERS TABLE ====================
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
+  tier: userTierEnum('tier').default('individual_free').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -62,6 +86,7 @@ export const workspaceUsers = pgTable('workspace_users', {
   platform: platformEnum('platform').notNull(), // Which platform this user belongs to
   email: text('email').notNull(),
   fullName: text('full_name'),
+  department: text('department'), // Department/team name for business tier filtering
   isAdmin: boolean('is_admin').default(false),
   isSuspended: boolean('is_suspended').default(false),
   createdAt: timestamp('created_at'),
@@ -199,6 +224,67 @@ export const emails = pgTable('emails', {
   fetchedAt: timestamp('fetched_at').defaultNow().notNull(),
 });
 
+// ==================== SCAN JOBS TABLE ====================
+// FIFO queue for scan jobs
+export const scanJobs = pgTable('scan_jobs', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: scanJobStatusEnum('status').default('queued').notNull(),
+  scope: scanScopeEnum('scope').notNull(),
+  priority: integer('priority').default(0).notNull(), // Higher = more priority (paid users)
+  queuePosition: integer('queue_position'), // Current position in queue
+  estimatedStartTime: timestamp('estimated_start_time'),
+  platforms: jsonb('platforms').notNull(), // Array of platforms to scan ['google_workspace', 'gmail']
+  results: jsonb('results'), // Scan results: { assetsFound: 123, riskScore: 45, highRiskCount: 12 }
+  errorMessage: text('error_message'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  startedAt: timestamp('started_at'),
+  completedAt: timestamp('completed_at'),
+});
+
+// ==================== SCAN HISTORY TABLE ====================
+// Historical tracking of all scans
+export const scanHistory = pgTable('scan_history', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  jobId: integer('job_id').references(() => scanJobs.id, { onDelete: 'set null' }),
+  scope: scanScopeEnum('scope').notNull(),
+  platforms: jsonb('platforms').notNull(),
+  assetsFound: integer('assets_found').default(0).notNull(),
+  riskScore: integer('risk_score').default(0).notNull(),
+  highRiskCount: integer('high_risk_count').default(0).notNull(),
+  mediumRiskCount: integer('medium_risk_count').default(0).notNull(),
+  lowRiskCount: integer('low_risk_count').default(0).notNull(),
+  scanDuration: integer('scan_duration'), // Duration in seconds
+  completedAt: timestamp('completed_at').defaultNow().notNull(),
+});
+
+// ==================== API QUOTA USAGE TABLE ====================
+// Track daily API quota usage
+export const apiQuotaUsage = pgTable('api_quota_usage', {
+  id: serial('id').primaryKey(),
+  tier: userTierEnum('tier').notNull(),
+  date: date('date').notNull(),
+  apiCalls: integer('api_calls').default(0).notNull(),
+  quota: integer('quota').notNull(), // Daily quota limit
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ==================== USER SUBSCRIPTIONS TABLE ====================
+// Track user payments and subscriptions
+export const userSubscriptions = pgTable('user_subscriptions', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  tier: userTierEnum('tier').notNull(),
+  status: text('status').notNull(), // active, cancelled, expired
+  paymentMethod: text('payment_method'), // stripe, one_time
+  subscriptionId: text('subscription_id'), // Stripe subscription ID
+  currentPeriodStart: timestamp('current_period_start'),
+  currentPeriodEnd: timestamp('current_period_end'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ==================== RELATIONS ====================
 export const usersRelations = relations(users, ({ many, one }) => ({
   assets: many(assets),
@@ -210,6 +296,9 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   gmailOAuthToken: one(gmailOAuthTokens),
   emailSenders: many(emailSenders),
   emails: many(emails),
+  scanJobs: many(scanJobs),
+  scanHistory: many(scanHistory),
+  subscription: one(userSubscriptions),
 }));
 
 export const platformCredentialsRelations = relations(platformCredentials, ({ one }) => ({
@@ -298,5 +387,31 @@ export const emailsRelations = relations(emails, ({ one }) => ({
   sender: one(emailSenders, {
     fields: [emails.senderId],
     references: [emailSenders.id],
+  }),
+}));
+
+export const scanJobsRelations = relations(scanJobs, ({ one }) => ({
+  user: one(users, {
+    fields: [scanJobs.userId],
+    references: [users.id],
+  }),
+  historyEntry: one(scanHistory),
+}));
+
+export const scanHistoryRelations = relations(scanHistory, ({ one }) => ({
+  user: one(users, {
+    fields: [scanHistory.userId],
+    references: [users.id],
+  }),
+  job: one(scanJobs, {
+    fields: [scanHistory.jobId],
+    references: [scanJobs.id],
+  }),
+}));
+
+export const userSubscriptionsRelations = relations(userSubscriptions, ({ one }) => ({
+  user: one(users, {
+    fields: [userSubscriptions.userId],
+    references: [users.id],
   }),
 }));

@@ -8,6 +8,7 @@
 import { Hono } from 'hono';
 import { AssetDiscoveryService } from '../services/asset-discovery-service.js';
 import { AssetRepository } from '../db/repositories/asset.js';
+import { actionSuggestionService } from '../services/action-suggestion-service.js';
 import { logger } from '../utils/logger.js';
 import { Platform } from '../types/index.js';
 import { jwtMiddleware, attachUser, type AuthVariables } from '../middleware/auth.js';
@@ -514,6 +515,95 @@ app.get('/analytics/overview', async (c) => {
     return c.json({
       error: true,
       message: 'Failed to fetch analytics overview',
+    }, 500);
+  }
+});
+
+/**
+ * GET /api/assets/:id/suggestions
+ * Get suggested actions for a specific asset
+ */
+app.get('/:id/suggestions', async (c) => {
+  try {
+    const user = c.get('user');
+    const assetId = parseInt(c.req.param('id'));
+
+    if (isNaN(assetId)) {
+      return c.json({ error: true, message: 'Invalid asset ID' }, 400);
+    }
+
+    // Get asset with permissions
+    const asset = await AssetRepository.findById(assetId);
+    if (!asset) {
+      return c.json({ error: true, message: 'Asset not found' }, 404);
+    }
+
+    // Verify asset belongs to user
+    if (asset.userId !== user.id) {
+      return c.json({ error: true, message: 'Unauthorized' }, 403);
+    }
+
+    // Get permissions
+    const permissions = await AssetRepository.getPermissions(assetId);
+
+    // Get suggestions
+    const suggestions = actionSuggestionService.getSuggestedActions({
+      ...asset,
+      permissions,
+    });
+
+    return c.json({
+      assetId,
+      assetName: asset.name,
+      riskScore: asset.riskScore,
+      suggestions,
+      priorityMessage: actionSuggestionService.getPriorityMessage({
+        ...asset,
+        permissions,
+      }),
+    });
+  } catch (error) {
+    logger.error('Error getting action suggestions', { error });
+    return c.json({
+      error: true,
+      message: 'Failed to get action suggestions',
+    }, 500);
+  }
+});
+
+/**
+ * GET /api/assets/suggestions/batch
+ * Get batch suggestions for high-risk assets
+ */
+app.get('/suggestions/batch', async (c) => {
+  try {
+    const user = c.get('user');
+
+    // Get high-risk assets (risk score >= 61)
+    const highRiskAssets = await AssetRepository.findByUserId(user.id, {
+      minRiskScore: 61,
+      limit: 100,
+    });
+
+    // Get permissions for each asset
+    const assetsWithPermissions = await Promise.all(
+      highRiskAssets.map(async (asset) => ({
+        ...asset,
+        permissions: await AssetRepository.getPermissions(asset.id),
+      }))
+    );
+
+    const batchSuggestions = actionSuggestionService.getBatchSuggestions(assetsWithPermissions);
+
+    return c.json({
+      highRiskCount: highRiskAssets.length,
+      batchSuggestions,
+    });
+  } catch (error) {
+    logger.error('Error getting batch suggestions', { error });
+    return c.json({
+      error: true,
+      message: 'Failed to get batch suggestions',
     }, 500);
   }
 });

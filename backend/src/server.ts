@@ -8,6 +8,8 @@ import { governanceRouter } from "./routes/governance.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { reportsRouter } from "./routes/reports.js";
 import gmailRouter from "./routes/gmail.js";
+import scansRouter from "./routes/scans.js";
+import { organization as organizationRouter } from "./routes/organization.js";
 import { connectToDatabase } from "./db/connection.js";
 import { logger } from "./utils/logger.js";
 import type { HealthResponse, ErrorResponse } from "./types/index.js";
@@ -58,6 +60,12 @@ app.route("/reports", reportsRouter);
 
 // Gmail email management routes
 app.route("/api/gmail", gmailRouter);
+
+// Scan queue routes
+app.route("/api/scans", scansRouter);
+
+// Organization routes (business tier)
+app.route("/api/organization", organizationRouter);
 
 // 404 handler
 app.notFound((c) => {

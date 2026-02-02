@@ -8,6 +8,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-key-change-in-pr
 export interface JwtPayload extends JWTPayload {
   userId: number;
   email: string;
+  tier?: 'individual_free' | 'individual_paid' | 'business';
 }
 
 // Context variables type

@@ -27,6 +27,7 @@ export default function Signup() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [tier, setTier] = useState<'individual_free' | 'individual_paid' | 'business'>('individual_free');
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string; confirmPassword?: string }>({});
   const [loading, setLoading] = useState(false);
@@ -68,10 +69,10 @@ export default function Signup() {
     setLoading(true);
 
     try {
-      const data = await authApi.signup(email.trim(), password);
+      const data = await authApi.signup(email.trim(), password, tier);
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
-      navigate('/dashboard');
+      navigate('/assets');
     } catch (err: any) {
       console.log(err)
       setError(extractErrorMessage(err));
@@ -150,6 +151,64 @@ export default function Signup() {
             {fieldErrors.confirmPassword && (
               <p className="mt-1 text-xs text-red-600">{fieldErrors.confirmPassword}</p>
             )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Account Type
+            </label>
+            <div className="space-y-2">
+              <label className="flex items-start p-3 border border-gray-300 rounded cursor-pointer hover:bg-gray-50 transition-colors">
+                <input
+                  type="radio"
+                  name="tier"
+                  value="individual_free"
+                  checked={tier === 'individual_free'}
+                  onChange={(e) => setTier(e.target.value as 'individual_free')}
+                  className="mt-1 mr-3"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">Individual (Free)</div>
+                  <div className="text-xs text-gray-600 mt-0.5">
+                    Queue-based scans • 10k daily API quota (shared)
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex items-start p-3 border border-gray-300 rounded cursor-pointer hover:bg-gray-50 transition-colors">
+                <input
+                  type="radio"
+                  name="tier"
+                  value="individual_paid"
+                  checked={tier === 'individual_paid'}
+                  onChange={(e) => setTier(e.target.value as 'individual_paid')}
+                  className="mt-1 mr-3"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">Individual Pro ($29/mo)</div>
+                  <div className="text-xs text-gray-600 mt-0.5">
+                    Skip queue • 50k daily API quota • Priority support
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex items-start p-3 border border-gray-300 rounded cursor-pointer hover:bg-gray-50 transition-colors">
+                <input
+                  type="radio"
+                  name="tier"
+                  value="business"
+                  checked={tier === 'business'}
+                  onChange={(e) => setTier(e.target.value as 'business')}
+                  className="mt-1 mr-3"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">Business</div>
+                  <div className="text-xs text-gray-600 mt-0.5">
+                    Organization-wide • 100k daily quota • Advanced features
+                  </div>
+                </div>
+              </label>
+            </div>
           </div>
 
           <button

@@ -8,7 +8,11 @@ export type NewUser = typeof users.$inferInsert;
 
 export class UserRepository {
   // Create a new user
-  static async create(email: string, password: string): Promise<User> {
+  static async create(
+    email: string,
+    password: string,
+    tier: 'individual_free' | 'individual_paid' | 'business' = 'individual_free'
+  ): Promise<User> {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
@@ -17,6 +21,7 @@ export class UserRepository {
       .values({
         email: email.toLowerCase(),
         passwordHash,
+        tier,
       })
       .returning();
 
@@ -74,5 +79,22 @@ export class UserRepository {
       throw new Error(`User not found: ${userId}`);
     }
     return user;
+  }
+
+  // Update user tier
+  static async updateTier(
+    userId: number,
+    tier: 'individual_free' | 'individual_paid' | 'business'
+  ): Promise<User> {
+    const [updated] = await db
+      .update(users)
+      .set({ tier, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+
+    if (!updated) {
+      throw new Error(`Failed to update tier for user ${userId}`);
+    }
+    return updated;
   }
 }

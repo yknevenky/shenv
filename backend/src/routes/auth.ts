@@ -9,7 +9,7 @@ export const authRouter = new Hono();
 // Signup endpoint
 authRouter.post('/signup', async (c) => {
   try {
-    const { email, password } = await c.req.json();
+    const { email, password, tier } = await c.req.json();
 
     // Validation
     if (!email || !password) {
@@ -20,6 +20,10 @@ authRouter.post('/signup', async (c) => {
       return c.json({ error: true, message: 'Password must be at least 6 characters' }, 400);
     }
 
+    // Validate tier if provided
+    const validTiers = ['individual_free', 'individual_paid', 'business'];
+    const userTier = tier && validTiers.includes(tier) ? tier : 'individual_free';
+
     // Check if user already exists
     const existingUser = await UserRepository.findByEmail(email);
     if (existingUser) {
@@ -27,15 +31,16 @@ authRouter.post('/signup', async (c) => {
     }
 
     // Create new user (password will be hashed by UserRepository.create)
-    const user = await UserRepository.create(email, password);
+    const user = await UserRepository.create(email, password, userTier);
 
     // Generate JWT token
     const token = await generateToken({
       userId: user.id,
       email: user.email,
+      tier: user.tier,
     });
 
-    logger.info(`New user signed up: ${user.email}`);
+    logger.info(`New user signed up: ${user.email} (tier: ${user.tier})`);
 
     return c.json({
       success: true,
@@ -43,6 +48,7 @@ authRouter.post('/signup', async (c) => {
       user: {
         id: user.id,
         email: user.email,
+        tier: user.tier,
         hasPlatformCredentials: false, // New users never have credentials
       },
     }, 201);
@@ -82,9 +88,10 @@ authRouter.post('/signin', async (c) => {
     const token = await generateToken({
       userId: user.id,
       email: user.email,
+      tier: user.tier,
     });
 
-    logger.info(`User signed in: ${user.email}`);
+    logger.info(`User signed in: ${user.email} (tier: ${user.tier})`);
 
     return c.json({
       success: true,
@@ -92,6 +99,7 @@ authRouter.post('/signin', async (c) => {
       user: {
         id: user.id,
         email: user.email,
+        tier: user.tier,
         hasPlatformCredentials,
       },
     });

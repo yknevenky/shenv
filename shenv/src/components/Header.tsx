@@ -3,10 +3,25 @@
  */
 
 import { Link, useLocation } from 'react-router-dom';
-import { Shield, Package, FileText, Mail, HardDrive, LogOut } from 'lucide-react';
+import { Shield, Package, FileText, Mail, HardDrive, LogOut, Building, TrendingUp } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export function Header() {
   const location = useLocation();
+  const [userTier, setUserTier] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Decode JWT to get user tier
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        setUserTier(payload.tier || 'individual_free');
+      } catch (err) {
+        console.error('Failed to decode token:', err);
+      }
+    }
+  }, []);
 
   const isActive = (path: string) => {
     return location.pathname === path || location.pathname.startsWith(path + '/');
@@ -17,6 +32,8 @@ export function Header() {
     localStorage.removeItem('user');
     window.location.href = '/signin';
   };
+
+  const isBusinessTier = userTier === 'business';
 
   return (
     <header className="border-b border-gray-200 bg-white">
@@ -40,6 +57,34 @@ export function Header() {
               <Package className="w-4 h-4" />
               Assets
             </Link>
+
+            {/* Primary: Progress */}
+            <Link
+              to="/progress"
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                isActive('/progress')
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              <TrendingUp className="w-4 h-4" />
+              Progress
+            </Link>
+
+            {/* Business Tier: Organization */}
+            {isBusinessTier && (
+              <Link
+                to="/organization"
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  isActive('/organization')
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <Building className="w-4 h-4" />
+                Organization
+              </Link>
+            )}
 
             {/* Separator */}
             <div className="mx-2 h-6 w-px bg-gray-200" />
